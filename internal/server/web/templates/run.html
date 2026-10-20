@@ -1,0 +1,133 @@
+{{define "content"}}
+{{$run := .Data.Run}}{{$rep := .Data.Report}}
+<div class="page-head">
+  <div>
+    <p class="crumb"><a href="/runs">Runs</a> / #{{$run.ID}}</p>
+    <h1 class="ref-title"><code>{{$run.ImageRef}}</code></h1>
+    <p class="sub">{{if $run.ScanName}}Scan <a href="/scans/{{deref $run.ScanID}}">{{$run.ScanName}}</a> · {{end}}{{$run.Trigger}} run · platforms <code>{{$run.Platforms}}</code></p>
+  </div>
+  <div class="head-actions">
+    {{if $run.ScanID}}<form method="post" action="/scans/{{deref $run.ScanID}}/run"><button type="submit" class="secondary">Run again</button></form>
+    {{else}}<form method="post" action="/runs"><input type="hidden" name="image_ref" value="{{$run.ImageRef}}"><input type="hidden" name="platforms" value="{{$run.Platforms}}"><button type="submit" class="secondary">Run again</button></form>{{end}}
+    {{if $rep}}<a class="button secondary" href="/runs/{{$run.ID}}/report.json">Download JSON</a>{{end}}
+  </div>
+</div>
+
+<section class="verdict verdict-{{$run.Status}}">
+  <div class="verdict-icon" aria-hidden="true">{{statusIcon $run.Status}}</div>
+  <div>
+    <div class="verdict-title">
+      {{if eq $run.Status "clean"}}No malware found
+      {{else if eq $run.Status "infected"}}{{$run.Findings}} finding{{if ne $run.Findings 1}}s{{end}}
+      {{else if eq $run.Status "error"}}Scan failed – the image was not fully scanned
+      {{else if eq $run.Status "running"}}Scanning…
+      {{else}}Waiting for a free worker…{{end}}
+    </div>
+    <div class="verdict-sub">
+      {{if eq $run.Status "running"}}{{or $run.Progress "Pulling image"}} · running for {{dur $run.Duration}}
+      {{else if eq $run.Status "error"}}{{$run.Error}}
+      {{else if eq $run.Status "queued"}}queued {{ago $run.QueuedAt}}
+      {{else}}{{num $run.Files}} files scanned in {{dur $run.Duration}}{{if $run.Skipped}} · <strong>{{$run.Skipped}} skipped</strong>{{end}}{{end}}
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <dl class="facts">
+    <div><dt>Digest</dt><dd>{{if $run.Digest}}<code title="{{$run.Digest}}">{{short $run.Digest}}</code>{{else}}–{{end}}</dd></div>
+    <div><dt>Engine</dt><dd>{{or $run.Engine "–"}}{{if $run.Signatures}} · signatures {{$run.Signatures}}{{end}}</dd></div>
+    <div><dt>Queued</dt><dd>{{time $run.QueuedAt}}</dd></div>
+    <div><dt>Started</dt><dd>{{timep $run.StartedAt}}</dd></div>
+    <div><dt>Finished</dt><dd>{{timep $run.FinishedAt}}</dd></div>
+    <div><dt>Duration</dt><dd>{{dur $run.Duration}}</dd></div>
+  </dl>
+</section>
+
+{{if $rep}}
+{{$findings := $rep.Findings}}
+{{if $findings}}
+<section class="card">
+  <div class="card-head"><h2>Findings</h2></div>
+  <p class="note">Files with the status <em>deleted</em> were removed by a later layer but are still shipped with the image: everyone who pulls it receives them, and they can be restored from that layer.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Status</th><th>Path</th><th>Signature</th><th>Platform</th><th>Layer</th><th>Created by</th></tr></thead>
+    <tbody>
+    {{range $findings}}
+    <tr>
+      <td>{{template "badge" .Status}}{{if .HiddenByLayer}}<div class="sub">{{.HiddenHow}} in layer {{.HiddenByLayer}}</div>{{end}}</td>
+      <td class="ref"><code>{{.Path}}</code></td>
+      <td><code>{{.Signature}}</code></td>
+      <td><code>{{.Platform}}</code></td>
+      <td><span title="{{.DiffID}}">{{.Layer}} · <code>{{short .DiffID}}</code></span></td>
+      <td class="created-by"><code title="{{.CreatedBy}}">{{.CreatedBy}}</code></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+
+<section class="card">
+  <div class="card-head"><h2>Platforms</h2></div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Platform</th><th>Digest</th><th class="num">Layers</th><th class="num">Files</th><th class="num">Findings</th><th class="num">Skipped</th></tr></thead>
+    <tbody>
+    {{range $rep.Platforms}}
+    <tr>
+      <td><code>{{.Platform}}</code></td>
+      <td><code title="{{.Digest}}">{{short .Digest}}</code></td>
+      <td class="num">{{len .Layers}}</td>
+      <td class="num">{{num .Files}}</td>
+      <td class="num">{{if .Findings}}<strong class="ink-critical">{{len .Findings}}</strong>{{else}}0{{end}}</td>
+      <td class="num">{{len .Skipped}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{range $rep.Platforms}}
+  <details class="layers">
+    <summary>Layers of <code>{{.Platform}}</code></summary>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th class="num">#</th><th>DiffID</th><th class="num">Files</th><th class="num">Size</th><th>Created by</th><th></th></tr></thead>
+      <tbody>
+      {{range .Layers}}
+      <tr>
+        <td class="num">{{.Index}}</td>
+        <td><code title="{{.DiffID}}">{{short .DiffID}}</code></td>
+        <td class="num">{{num .Files}}</td>
+        <td class="num">{{bytes .Bytes}}</td>
+        <td class="created-by"><code title="{{.CreatedBy}}">{{.CreatedBy}}</code></td>
+        <td>{{if .Cached}}<span class="tag" title="Result reused from an earlier scan with the same signatures">cached</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </details>
+  {{end}}
+</section>
+
+{{$skipped := $rep.Skipped}}
+{{if $skipped}}
+<section class="card">
+  <div class="card-head"><h2>Skipped files</h2></div>
+  <p class="note">These files were <strong>not scanned</strong>, usually because they exceed the maximum file size.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Path</th><th>Platform</th><th class="num">Layer</th><th class="num">Size</th><th>Reason</th></tr></thead>
+    <tbody>
+    {{range $skipped}}
+    <tr><td class="ref"><code>{{.Path}}</code></td><td><code>{{.Platform}}</code></td><td class="num">{{.Layer}}</td><td class="num">{{bytes .Size}}</td><td>{{.Reason}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+{{end}}
+{{end}}

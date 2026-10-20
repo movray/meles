@@ -1,0 +1,69 @@
+{{define "badge"}}<span class="badge badge-{{.}}"><span class="badge-icon" aria-hidden="true">{{statusIcon .}}</span>{{statusLabel .}}</span>{{end}}
+
+{{define "runsTable"}}
+{{if .}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Result</th><th>Image</th><th>Trigger</th><th>Started</th><th class="num">Duration</th><th class="num">Files</th><th class="num">Findings</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><a class="row-link" href="/runs/{{.ID}}">{{template "badge" .Status}}</a></td>
+    <td class="ref">
+      <a href="/runs/{{.ID}}"><code>{{.ImageRef}}</code></a>
+      {{if .ScanName}}<div class="sub">{{.ScanName}}</div>{{end}}
+      {{if and (eq .Status "running") .Progress}}<div class="sub progress">{{.Progress}}</div>{{end}}
+    </td>
+    <td>{{.Trigger}}</td>
+    <td>{{if .StartedAt}}<span title="{{timep .StartedAt}}">{{ago (deref_time .StartedAt)}}</span>{{else}}<span title="queued {{time .QueuedAt}}">waiting</span>{{end}}</td>
+    <td class="num">{{dur .Duration}}</td>
+    <td class="num">{{if isDone .}}{{num .Files}}{{else}}–{{end}}</td>
+    <td class="num">{{if isDone .}}{{if .Findings}}<strong class="ink-critical">{{.Findings}}</strong>{{else}}0{{end}}{{else}}–{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}
+<p class="empty">No runs yet.</p>
+{{end}}
+{{end}}
+
+{{define "scanFields"}}
+<div class="field">
+  <label for="image_ref">Image reference</label>
+  <input id="image_ref" name="image_ref" value="{{.Input.ImageRef}}" placeholder="registry.example.com/team/app:1.4" required autocomplete="off" spellcheck="false"{{if .Errors.ImageRef}} aria-invalid="true" aria-describedby="image_ref-err"{{end}}>
+  {{with .Errors.ImageRef}}<p class="err" id="image_ref-err">{{.}}</p>{{end}}
+  <p class="hint">Tag or digest. Private registries use the credentials of the server's Docker config.</p>
+</div>
+<div class="field">
+  <label for="name">Name <span class="optional">optional</span></label>
+  <input class="sans" id="name" name="name" value="{{.Input.Name}}" placeholder="Defaults to the image reference" maxlength="100"{{if .Errors.Name}} aria-invalid="true"{{end}}>
+  {{with .Errors.Name}}<p class="err">{{.}}</p>{{end}}
+</div>
+<div class="field">
+  <label for="platforms">Platforms</label>
+  <input id="platforms" name="platforms" value="{{.Input.Platforms}}" list="platform-options" spellcheck="false"{{if .Errors.Platforms}} aria-invalid="true"{{end}}>
+  <datalist id="platform-options"><option value="all"><option value="host"><option value="linux/amd64"><option value="linux/arm64"><option value="linux/amd64,linux/arm64"></datalist>
+  {{with .Errors.Platforms}}<p class="err">{{.}}</p>{{end}}
+  <p class="hint"><code>all</code> scans every platform of a multi-arch image (recommended), <code>host</code> only the server's own.</p>
+</div>
+<div class="field">
+  <label for="schedule">Schedule <span class="optional">optional</span></label>
+  <input id="schedule" name="schedule" value="{{.Input.Schedule}}" placeholder="Manual only" spellcheck="false" autocomplete="off"{{if .Errors.Schedule}} aria-invalid="true"{{end}}>
+  {{with .Errors.Schedule}}<p class="err">{{.}}</p>{{end}}
+  <div class="chips" data-fill="schedule">
+    <button type="button" class="chip" data-value="">Manual</button>
+    <button type="button" class="chip" data-value="@hourly">Hourly</button>
+    <button type="button" class="chip" data-value="@every 6h">Every 6 h</button>
+    <button type="button" class="chip" data-value="0 3 * * *">Daily 03:00</button>
+    <button type="button" class="chip" data-value="0 3 * * 1-5">Mon–Fri 03:00</button>
+    <button type="button" class="chip" data-value="0 4 * * 0">Sundays 04:00</button>
+  </div>
+  <p class="hint">Cron syntax (minute hour day month weekday), <code>@daily</code> or <code>@every 6h</code>. Prefix <code>CRON_TZ=Europe/Berlin</code> for a time zone.</p>
+</div>
+<div class="field check">
+  <input type="checkbox" id="enabled" name="enabled" value="1"{{if .Enabled}} checked{{end}}>
+  <label for="enabled">Schedule active</label>
+</div>
+{{end}}

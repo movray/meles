@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+<title>{{.Title}} · meles</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="/"><img src="/static/favicon.svg" alt="" width="24" height="24"><span>meles</span></a>
+    <nav aria-label="Main">
+      <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>Dashboard</a>
+      <a href="/scans"{{if eq .Nav "scans"}} aria-current="page"{{end}}>Scans</a>
+      <a href="/runs"{{if eq .Nav "runs"}} aria-current="page"{{end}}>Runs</a>
+      <a href="/reports"{{if eq .Nav "reports"}} aria-current="page"{{end}}>Reports</a>
+    </nav>
+    {{if .Engine.CheckedAt.IsZero}}
+    <div class="engine"><span class="dot" aria-hidden="true"></span>Checking clamd…</div>
+    {{else if .Engine.OK}}
+    <div class="engine ok" title="{{.Engine.Version.Raw}} · checked {{ago .Engine.CheckedAt}}"><span class="dot" aria-hidden="true"></span>{{.Engine.Version.Engine}} · signatures {{.Engine.Version.Signatures}}</div>
+    {{else}}
+    <div class="engine down" title="{{.Engine.Error}}"><span class="dot" aria-hidden="true"></span>clamd unreachable</div>
+    {{end}}
+  </div>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer>
+  <span>meles {{.Version}}</span>
+  {{if .Queue}}<span>{{.Queue}} run{{if ne .Queue 1}}s{{end}} waiting</span>{{end}}
+  <a href="/api/runs">JSON API</a>
+</footer>
+</body>
+</html>

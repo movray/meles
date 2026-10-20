@@ -1,0 +1,30 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>{{.Title}}</h1>
+</div>
+<div class="card form-card">
+  <form method="post" action="{{if $d.Scan}}/scans/{{$d.Scan.ID}}{{else}}/scans{{end}}">
+    {{template "scanFields" $d}}
+    {{if not $d.Scan}}
+    <div class="field check">
+      <input type="checkbox" id="run_now" name="run_now" value="1" checked>
+      <label for="run_now">Run once right after saving</label>
+    </div>
+    {{end}}
+    <div class="form-actions">
+      <button type="submit">{{if $d.Scan}}Save changes{{else}}Create scan{{end}}</button>
+      <a class="button secondary" href="{{if $d.Scan}}/scans/{{$d.Scan.ID}}{{else}}/scans{{end}}">Cancel</a>
+    </div>
+  </form>
+</div>
+{{if $d.Scan}}
+<div class="card danger-zone">
+  <h2>Delete scan</h2>
+  <p>Deletes the configuration and its schedule. Past runs and their reports are kept.</p>
+  <form method="post" action="/scans/{{$d.Scan.ID}}/delete" data-confirm="Delete the scan “{{$d.Scan.Name}}”?">
+    <button type="submit" class="danger">Delete scan</button>
+  </form>
+</div>
+{{end}}
+{{end}}

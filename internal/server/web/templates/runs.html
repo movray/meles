@@ -1,0 +1,23 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Runs</h1>
+  <p class="sub">{{num $d.Total}} run{{if ne $d.Total 1}}s{{end}}{{if $d.Filter.ImageRef}} of <code>{{$d.Filter.ImageRef}}</code>{{end}}</p>
+</div>
+<nav class="filters" aria-label="Filter by result">
+  <a class="chip" href="{{query "/runs" "scan" $d.Filter.ScanID "image" $d.Filter.ImageRef}}"{{if not $d.Filter.Status}} aria-current="true"{{end}}>All</a>
+  {{range $d.Statuses}}
+  <a class="chip" href="{{query "/runs" "status" . "scan" $d.Filter.ScanID "image" $d.Filter.ImageRef}}"{{if eq . $d.Filter.Status}} aria-current="true"{{end}}><span aria-hidden="true">{{statusIcon .}}</span> {{statusLabel .}}</a>
+  {{end}}
+</nav>
+<div class="card table-card">
+  {{template "runsTable" $d.Runs}}
+</div>
+{{if or $d.HasPrev $d.HasNext}}
+<nav class="pager" aria-label="Pages">
+  {{if $d.HasPrev}}<a class="button secondary" href="{{query "/runs" "status" $d.Filter.Status "scan" $d.Filter.ScanID "image" $d.Filter.ImageRef "page" (sub $d.Page 1)}}">← Newer</a>{{end}}
+  <span>Page {{$d.Page}}</span>
+  {{if $d.HasNext}}<a class="button secondary" href="{{query "/runs" "status" $d.Filter.Status "scan" $d.Filter.ScanID "image" $d.Filter.ImageRef "page" (add $d.Page 1)}}">Older →</a>{{end}}
+</nav>
+{{end}}
+{{end}}

@@ -1,0 +1,86 @@
+{{define "content"}}
+{{$d := .Data}}
+<section class="hero card">
+  <h1>Scan an image</h1>
+  <form class="quick" method="post" action="/runs">
+    <label class="sr-only" for="q-ref">Image reference</label>
+    <input id="q-ref" name="image_ref" placeholder="alpine:3.20 or registry.example.com/app@sha256:…" required autocomplete="off" spellcheck="false">
+    <label class="sr-only" for="q-plat">Platforms</label>
+    <select id="q-plat" name="platforms">
+      <option value="all">All platforms</option>
+      <option value="host">Host platform only</option>
+      <option value="linux/amd64">linux/amd64</option>
+      <option value="linux/arm64">linux/arm64</option>
+    </select>
+    <button type="submit">Scan now</button>
+    <button type="submit" class="secondary" formaction="/scans/new" formmethod="get" formnovalidate>Save as scan…</button>
+  </form>
+</section>
+
+<section class="tiles" aria-label="Overview">
+  <div class="tile">
+    <div class="tile-label">Images tracked</div>
+    <div class="tile-value">{{num $d.Stats.Images}}</div>
+    <div class="tile-sub">latest result per image</div>
+  </div>
+  <div class="tile{{if $d.Stats.InfectedImages}} tile-critical{{end}}">
+    <div class="tile-label">Infected images</div>
+    <div class="tile-value">{{num $d.Stats.InfectedImages}}</div>
+    <div class="tile-sub">{{if $d.Stats.InfectedImages}}<span aria-hidden="true">✕</span> need attention{{else}}<span aria-hidden="true">✓</span> none{{end}}</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Runs, last 24 h</div>
+    <div class="tile-value">{{num $d.Stats.Runs}}</div>
+    <div class="tile-sub">{{$d.Stats.Clean}} clean · {{$d.Stats.Infected}} infected</div>
+  </div>
+  <div class="tile{{if $d.Stats.Errors}} tile-warning{{end}}">
+    <div class="tile-label">Errors, last 24 h</div>
+    <div class="tile-value">{{num $d.Stats.Errors}}</div>
+    <div class="tile-sub">not scanned, never counted as clean</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Scheduled scans</div>
+    <div class="tile-value">{{num $d.Stats.ScheduledScans}}</div>
+    <div class="tile-sub">of {{$d.Stats.Scans}} configured</div>
+  </div>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Needs attention</h2><a href="/reports">Reports →</a></div>
+    {{if $d.Attention}}
+    <ul class="list">
+      {{range $d.Attention}}
+      <li>
+        {{template "badge" .Status}}
+        <a href="/runs/{{.ID}}"><code>{{.ImageRef}}</code></a>
+        <span class="sub clamp" title="{{.Error}}">{{if eq .Status "infected"}}{{.Findings}} finding{{if ne .Findings 1}}s{{end}}{{else}}{{.Error}}{{end}} · {{ago (deref_time .FinishedAt)}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p class="empty"><span aria-hidden="true">✓</span> Every tracked image was clean in its latest run.</p>
+    {{end}}
+  </section>
+  <section class="card">
+    <div class="card-head"><h2>Upcoming</h2><a href="/scans">Scans →</a></div>
+    {{if $d.Upcoming}}
+    <ul class="list">
+      {{range $d.Upcoming}}
+      <li>
+        <a href="/scans/{{.Scan.ID}}">{{.Scan.Name}}</a>
+        <span class="sub" title="{{time .Next}}">{{until .Next}} · {{schedule .Scan.Schedule}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p class="empty">No scheduled scans. <a href="/scans/new">Create one</a> to scan images regularly.</p>
+    {{end}}
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Recent runs</h2><a href="/runs">All runs →</a></div>
+  {{template "runsTable" $d.Recent}}
+</section>
+{{end}}

@@ -1,0 +1,84 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Reports</h1>
+  <nav class="segmented" aria-label="Period">
+    {{range $d.DayOptions}}<a href="{{query "/reports" "days" .}}"{{if eq . $d.Days}} aria-current="true"{{end}}>{{.}} days</a>{{end}}
+  </nav>
+</div>
+
+<section class="tiles" aria-label="Period overview">
+  <div class="tile"><div class="tile-label">Runs</div><div class="tile-value">{{num $d.Stats.Runs}}</div><div class="tile-sub">last {{$d.Days}} days</div></div>
+  <div class="tile"><div class="tile-label">Clean</div><div class="tile-value">{{num $d.Stats.Clean}}</div><div class="tile-sub"><span aria-hidden="true">✓</span> fully scanned, no findings</div></div>
+  <div class="tile{{if $d.Stats.Infected}} tile-critical{{end}}"><div class="tile-label">Infected</div><div class="tile-value">{{num $d.Stats.Infected}}</div><div class="tile-sub">runs with findings</div></div>
+  <div class="tile{{if $d.Stats.Errors}} tile-warning{{end}}"><div class="tile-label">Errors</div><div class="tile-value">{{num $d.Stats.Errors}}</div><div class="tile-sub">not fully scanned</div></div>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Runs per day</h2></div>
+  <ul class="legend" aria-label="Legend">
+    <li><span class="swatch seg-infected" aria-hidden="true"></span>Infected</li>
+    <li><span class="swatch seg-error" aria-hidden="true"></span>Error</li>
+    <li><span class="swatch seg-clean" aria-hidden="true"></span>Clean</li>
+  </ul>
+  <div class="chart-wrap" data-tooltip-host>
+    {{dailyChart $d.Daily}}
+    <div class="tooltip" role="status" hidden></div>
+  </div>
+  <details class="table-view">
+    <summary>Show as table</summary>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Day</th><th class="num">Clean</th><th class="num">Infected</th><th class="num">Errors</th></tr></thead>
+      <tbody>{{range $d.Daily}}<tr><td>{{.Date.Format "Mon 2006-01-02"}}</td><td class="num">{{.Clean}}</td><td class="num">{{.Infected}}</td><td class="num">{{.Errors}}</td></tr>{{end}}</tbody>
+    </table>
+    </div>
+  </details>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Image status</h2><span class="sub">latest finished run per image reference</span></div>
+  {{if $d.Images}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Result</th><th>Image</th><th>Digest</th><th class="num">Findings</th><th>Scanned</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Images}}
+    <tr>
+      <td><a href="/runs/{{.ID}}">{{template "badge" .Status}}</a></td>
+      <td class="ref"><code>{{.ImageRef}}</code>{{if .ScanName}}<div class="sub">{{.ScanName}}</div>{{end}}</td>
+      <td>{{if .Digest}}<code title="{{.Digest}}">{{short .Digest}}</code>{{else}}–{{end}}</td>
+      <td class="num">{{if .Findings}}<strong class="ink-critical">{{.Findings}}</strong>{{else}}0{{end}}</td>
+      <td>{{ago (deref_time .FinishedAt)}}</td>
+      <td><a href="{{query "/runs" "image" .ImageRef}}">History</a></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}<p class="empty">No finished runs yet.</p>{{end}}
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Top signatures</h2><span class="sub">last {{$d.Days}} days</span></div>
+    {{if $d.Signatures}}
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Signature</th><th class="num">Findings</th><th class="num">Images</th><th>Last seen</th></tr></thead>
+      <tbody>{{range $d.Signatures}}<tr><td><code>{{.Signature}}</code></td><td class="num">{{.Findings}}</td><td class="num">{{.Images}}</td><td>{{ago .LastSeen}}</td></tr>{{end}}</tbody>
+    </table>
+    </div>
+    {{else}}<p class="empty"><span aria-hidden="true">✓</span> No findings in this period.</p>{{end}}
+  </section>
+  <section class="card">
+    <div class="card-head"><h2>Export</h2></div>
+    <ul class="list">
+      <li><a href="{{query "/reports/findings.csv" "days" $d.Days}}">Findings, last {{$d.Days}} days (CSV)</a></li>
+      <li><a href="/api/runs?limit=1000">Runs (JSON)</a></li>
+      <li><a href="/api/scans">Scans (JSON)</a></li>
+    </ul>
+    <p class="hint">Each run's full report is available as JSON on its page.</p>
+  </section>
+</div>
+{{end}}

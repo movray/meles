@@ -1,0 +1,30 @@
+{{define "content"}}
+{{$sc := .Data.Scan}}
+<div class="page-head">
+  <div>
+    <p class="crumb"><a href="/scans">Scans</a> /</p>
+    <h1>{{$sc.Name}}</h1>
+    <p class="sub"><code>{{$sc.ImageRef}}</code></p>
+  </div>
+  <div class="head-actions">
+    <form method="post" action="/scans/{{$sc.ID}}/run"><button type="submit">Run now</button></form>
+    <a class="button secondary" href="/scans/{{$sc.ID}}?edit=1">Edit</a>
+  </div>
+</div>
+
+<section class="card">
+  <dl class="facts">
+    <div><dt>Last result</dt><dd>{{with $sc.LastRun}}<a href="/runs/{{.ID}}">{{template "badge" .Status}}</a>{{else}}never run{{end}}</dd></div>
+    <div><dt>Schedule</dt><dd>{{schedule $sc.Schedule}}{{if $sc.Schedule}} <code class="sub">{{$sc.Schedule}}</code>{{end}}{{if and $sc.Schedule (not $sc.Enabled)}} <span class="tag">paused</span>{{end}}</dd></div>
+    <div><dt>Next run</dt><dd>{{if .Data.Next.IsZero}}–{{else}}<span title="{{time .Data.Next}}">{{time .Data.Next}} ({{until .Data.Next}})</span>{{end}}</dd></div>
+    <div><dt>Platforms</dt><dd><code>{{$sc.Platforms}}</code></dd></div>
+    <div><dt>Created</dt><dd>{{time $sc.CreatedAt}}</dd></div>
+    <div><dt>Changed</dt><dd>{{time $sc.UpdatedAt}}</dd></div>
+  </dl>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Run history</h2>{{if .Data.Runs}}<a href="{{query "/runs" "scan" $sc.ID}}">All runs of this scan →</a>{{end}}</div>
+  {{template "runsTable" .Data.Runs}}
+</section>
+{{end}}

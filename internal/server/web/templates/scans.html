@@ -1,0 +1,39 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Scans</h1>
+  <a class="button" href="/scans/new">New scan</a>
+</div>
+{{if .Data.Scans}}
+<div class="card table-card">
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Scan</th><th>Platforms</th><th>Schedule</th><th>Last result</th><th class="actions"><span class="sr-only">Actions</span></th></tr></thead>
+  <tbody>
+  {{range .Data.Scans}}
+  <tr>
+    <td class="ref"><a href="/scans/{{.ID}}"><strong>{{.Name}}</strong></a>{{if ne .Name .ImageRef}}<div class="sub"><code>{{.ImageRef}}</code></div>{{end}}</td>
+    <td><code>{{.Platforms}}</code></td>
+    <td>
+      {{schedule .Schedule}}
+      {{if and .Schedule (not .Enabled)}}<span class="tag">paused</span>{{end}}
+      {{$n := next .ID}}{{if not $n.IsZero}}<div class="sub" title="{{time $n}}">next {{until $n}}</div>{{end}}
+    </td>
+    <td>{{with .LastRun}}<a href="/runs/{{.ID}}">{{template "badge" .Status}}</a><div class="sub">{{if .FinishedAt}}{{ago (deref_time .FinishedAt)}}{{else}}{{.Progress}}{{end}}</div>{{else}}<span class="sub">never run</span>{{end}}</td>
+    <td class="actions">
+      <form method="post" action="/scans/{{.ID}}/run"><button type="submit" class="small secondary">Run now</button></form>
+      <a class="button small secondary" href="/scans/{{.ID}}?edit=1">Edit</a>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+</div>
+{{else}}
+<div class="card empty-state">
+  <h2>No scans configured yet</h2>
+  <p>A scan watches an image reference, optionally on a schedule. Every run pulls the image, scans each layer and keeps the result.</p>
+  <a class="button" href="/scans/new">Create the first scan</a>
+</div>
+{{end}}
+{{end}}
