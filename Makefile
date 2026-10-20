@@ -1,8 +1,8 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 CLAMD   ?= unix:///run/clamav/clamd.ctl
-# Image repository for `make image`, e.g. git.itknecht.de/sugras
-KO_DOCKER_REPO ?= git.itknecht.de/sugras
+# Image repository for `make image` (full name, ko runs with --bare)
+KO_DOCKER_REPO ?= git.itknecht.de/sugras/meles
 KO_VERSION     ?= v0.18.0
 
 .PHONY: build test test-integration lint run-server selftest image image-tarball clean
