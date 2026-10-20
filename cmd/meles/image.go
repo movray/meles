@@ -1,0 +1,80 @@
+package main
+
+import (
+	"fmt"
+	"log/slog"
+
+	"github.com/spf13/cobra"
+
+	"git.itknecht.de/sugras/meles/internal/report"
+	"git.itknecht.de/sugras/meles/internal/scan"
+	"git.itknecht.de/sugras/meles/internal/source"
+)
+
+func newImageCmd() *cobra.Command {
+	var (
+		sf        scanFlags
+		format    string
+		exitCode  int
+		platforms string
+	)
+	cmd := &cobra.Command{
+		Use:   "image <ref>...",
+		Short: "Scan container images from a registry",
+		Example: `  meles image alpine:3.20
+  meles image --platform host --format json ghcr.io/org/app:1.2
+  MELES_CLAMD=tcp://clamd:3310 meles image registry.example.com/app@sha256:...`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, refs []string) error {
+			if exitCode == exitError || exitCode < 0 || exitCode > 255 {
+				return fmt.Errorf("--exit-code %d: must be 0..255 and not %d, which is reserved for errors", exitCode, exitError)
+			}
+			pf, err := source.ParsePlatforms(platforms)
+			if err != nil {
+				return fmt.Errorf("--platform: %w", err)
+			}
+			s, err := sf.scanner(scan.NewCache(1000))
+			if err != nil {
+				return err
+			}
+
+			var reps []*scan.Report
+			failed := false
+			for _, ref := range refs {
+				rep, err := s.Scan(cmd.Context(), ref, pf, nil)
+				if err != nil {
+					slog.Error("scan failed", "ref", ref, "err", err)
+					failed = true
+					continue
+				}
+				reps = append(reps, rep)
+			}
+			if err := report.Write(cmd.OutOrStdout(), format, reps); err != nil {
+				return err
+			}
+
+			// Errors win over findings: a failed scan must never pass.
+			switch {
+			case failed:
+				return exitCodeError{exitError}
+			case anyInfected(reps) && exitCode != exitClean:
+				return exitCodeError{exitCode}
+			}
+			return nil
+		},
+	}
+	sf.register(cmd.Flags())
+	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json")
+	cmd.Flags().IntVar(&exitCode, "exit-code", exitFound, "exit code when malware is found (0 = report only; 2 is reserved for errors)")
+	cmd.Flags().StringVar(&platforms, "platform", "all", "platforms of multi-arch images: all, host or a list like linux/amd64,linux/arm64")
+	return cmd
+}
+
+func anyInfected(reps []*scan.Report) bool {
+	for _, r := range reps {
+		if r.Infected() {
+			return true
+		}
+	}
+	return false
+}
