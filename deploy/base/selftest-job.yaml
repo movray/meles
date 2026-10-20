@@ -1,0 +1,38 @@
+# Checks the whole chain in the cluster: generated EICAR test images,
+# pulled from an in-memory registry and scanned by the clamd workers.
+# kubectl -n meles create job --from=cronjob/meles-selftest selftest-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: meles-selftest
+spec:
+  schedule: "0 6 * * *"
+  suspend: true
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: meles, app.kubernetes.io/component: selftest}
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: meles-pull
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: selftest
+              image: meles
+              args: [selftest]
+              env:
+                - {name: MELES_CLAMD, value: "tcp://meles-clamd:3310"}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+                readOnlyRootFilesystem: true

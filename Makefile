@@ -29,14 +29,14 @@ run-server: build
 
 # Builds and pushes the meles image without a Docker daemon.
 image:
-	KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-ldflags=-X=main.version=$(VERSION)" \
+	KO_DOCKER_REPO=$(KO_DOCKER_REPO) VERSION=$(VERSION) \
 		go run github.com/google/ko@$(KO_VERSION) build --bare --platform=linux/amd64,linux/arm64 \
-		--tags=$(VERSION) ./cmd/meles
+		--tags=$(VERSION),latest ./cmd/meles
 
 # Builds the image into a local tarball only (no push).
 image-tarball:
 	mkdir -p dist
-	KO_DOCKER_REPO=ko.local/meles GOFLAGS="-ldflags=-X=main.version=$(VERSION)" \
+	KO_DOCKER_REPO=local.invalid/meles VERSION=$(VERSION) \
 		go run github.com/google/ko@$(KO_VERSION) build --bare --platform=linux/amd64 \
 		--push=false --tarball=dist/meles.tar ./cmd/meles
 
