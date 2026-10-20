@@ -10,4 +10,4 @@ resources:
 images:
   - name: meles
     newName: git.itknecht.de/sugras/meles
-    newTag: latest
+    newTag: "5b0da5a"
