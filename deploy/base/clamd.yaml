@@ -8,7 +8,8 @@ data:
   clamd.conf: |
     Foreground yes
     LogTime yes
-    LogFile /dev/stdout
+    # No LogFile: clamd and freshclam refuse /dev/stdout (symlink); in the
+    # foreground they log to the console anyway.
     DatabaseDirectory /var/lib/clamav
     TCPSocket 3310
     LocalSocket /tmp/clamd.sock
@@ -28,7 +29,6 @@ data:
   freshclam.conf: |
     Foreground yes
     LogTime yes
-    UpdateLogFile /dev/stdout
     DatabaseDirectory /var/lib/clamav
     DatabaseOwner clamav
     # Only the mirror talks to Cisco Talos.
