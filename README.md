@@ -205,7 +205,12 @@ server:
     clientId: meles
     existingSecret: meles-oidc
     allowedGroups: [meles-admins]
+    # If the provider's certificate comes from an internal CA: a ConfigMap
+    # with the CA certificate in the release namespace.
+    providerCA: {configMap: internal-ca, key: ca.crt}
 ```
+
+oauth2-proxy only accepts users with a verified e-mail address.
 
 Without oauth2-proxy keep the UI internal (port-forward) or put another
 authenticating proxy in front of it.

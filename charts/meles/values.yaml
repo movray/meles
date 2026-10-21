@@ -32,7 +32,9 @@ server:
   # Additional environment variables, e.g. MELES_CACHE_PATHS.
   extraEnv: []
   persistence:
-    # SQLite database; the server therefore runs with exactly one replica.
+    # SQLite database (WAL mode); the server therefore runs with exactly one
+    # replica. Use a local or block storage class, not NFS: SQLite's WAL
+    # does not work reliably on network file systems.
     size: 1Gi
     storageClass: ""
     existingClaim: ""
@@ -65,6 +67,11 @@ server:
     # user of the provider who passes emailDomains.
     allowedGroups: []
     emailDomains: ["*"]
+    # CA certificate (PEM) of the provider, e.g. an internal CA: a ConfigMap
+    # in the release namespace. The system roots stay trusted.
+    providerCA:
+      configMap: ""
+      key: ca.crt
     # false only for tests without HTTPS: the session cookie is then sent
     # unencrypted.
     cookieSecure: true
