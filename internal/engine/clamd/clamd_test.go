@@ -224,3 +224,47 @@ func (c *idleConn) Read(p []byte) (int, error) {
 	c.Conn.SetReadDeadline(time.Now().Add(c.idle))
 	return c.Conn.Read(p)
 }
+
+// A new pod may be rejected for a few seconds, e.g. until network policies
+// know it; the client retries refused connections.
+func TestConnectRetry(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // refused until the listener is back
+
+	go func() {
+		time.Sleep(time.Second)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		t.Cleanup(func() { ln.Close() })
+		conn, err := ln.Accept()
+		if err == nil {
+			serveFake(conn)
+		}
+	}()
+
+	c, err := New("tcp://" + addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.ConnectRetry = 5 * time.Second
+	if _, err := c.Version(context.Background()); err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+
+	c.ConnectRetry = 0
+	ln2, _ := net.Listen("tcp", "127.0.0.1:0")
+	dead := ln2.Addr().String()
+	ln2.Close()
+	c2, _ := New("tcp://" + dead)
+	c2.ConnectRetry = 0
+	if _, err := c2.Version(context.Background()); err == nil {
+		t.Error("want error without retry")
+	}
+}

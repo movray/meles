@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"git.itknecht.de/sugras/meles/internal/engine"
@@ -45,6 +46,11 @@ type Client struct {
 	TLSConfig *tls.Config
 	// Token authenticates with meles clamd-proxy. It is only sent over TLS.
 	Token string
+	// ConnectRetry is how long refused or timed-out connections are retried.
+	// A new pod may be rejected by network policies for a few seconds until
+	// the CNI knows it (seen with k3s/kube-router), and clamd may just be
+	// restarting.
+	ConnectRetry time.Duration
 }
 
 var _ engine.Engine = (*Client)(nil)
@@ -56,7 +62,7 @@ func New(addr string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse clamd address %q: %w", addr, err)
 	}
-	c := &Client{Timeout: 5 * time.Minute}
+	c := &Client{Timeout: 5 * time.Minute, ConnectRetry: 30 * time.Second}
 	switch u.Scheme {
 	case "unix":
 		c.network, c.address = "unix", u.Path
@@ -78,11 +84,10 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	if c.Token != "" && !c.tls {
 		return nil, errors.New("clamd token requires a tls:// address")
 	}
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	var (
-		conn net.Conn
-		err  error
-	)
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connect clamd %s: %w", c.url(), err)
+	}
 	if c.tls {
 		cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 		if c.TLSConfig != nil {
@@ -91,12 +96,15 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 		if cfg.ServerName == "" {
 			cfg.ServerName, _, _ = net.SplitHostPort(c.address)
 		}
-		conn, err = (&tls.Dialer{NetDialer: d, Config: cfg}).DialContext(ctx, c.network, c.address)
-	} else {
-		conn, err = d.DialContext(ctx, c.network, c.address)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("connect clamd %s: %w", c.url(), err)
+		tc := tls.Client(conn, cfg)
+		hctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := tc.HandshakeContext(hctx)
+		cancel()
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("connect clamd %s: %w", c.url(), err)
+		}
+		conn = tc
 	}
 	if c.Token != "" {
 		if err := authenticate(conn, c.Token); err != nil {
@@ -105,6 +113,31 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 		}
 	}
 	return conn, nil
+}
+
+// connect opens the connection and retries refused or timed-out attempts
+// for up to ConnectRetry.
+func (c *Client) connect(ctx context.Context) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	deadline := time.Now().Add(c.ConnectRetry)
+	wait := 500 * time.Millisecond
+	for {
+		conn, err := d.DialContext(ctx, c.network, c.address)
+		if err == nil || !retryable(err) || time.Now().Add(wait).After(deadline) {
+			return conn, err
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return nil, err
+		}
+		wait = min(2*wait, 5*time.Second)
+	}
+}
+
+func retryable(err error) bool {
+	var ne net.Error
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) || errors.As(err, &ne) && ne.Timeout()
 }
 
 func (c *Client) url() string {
