@@ -130,27 +130,35 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 				return nil, fmt.Errorf("%s: nested image index %s is not supported", ref, m.Digest)
 			}
 			// BuildKit attestation manifests use the platform unknown/unknown.
-			if m.Platform == nil || m.Platform.OS == "unknown" || !opts.Platforms.Match(*m.Platform) {
+			if m.Platform != nil && (m.Platform.OS == "unknown" || !opts.Platforms.Match(*m.Platform)) {
 				continue
 			}
 			pi, err := idx.Image(m.Digest)
 			if err != nil {
-				return nil, fmt.Errorf("read image %s (%s): %w", ref, m.Platform, err)
+				return nil, fmt.Errorf("read image %s (%s): %w", ref, m.Digest, err)
 			}
-			img.Platforms = append(img.Platforms, PlatformImage{Platform: m.Platform.String(), Digest: m.Digest.String(), Image: pi})
+			p := m.Platform
+			if p == nil {
+				// Like containerd, take the platform from the config
+				// instead of skipping the entry.
+				if p, err = configPlatform(pi); err != nil {
+					return nil, fmt.Errorf("%s: index entry %s without platform: %w", ref, m.Digest, err)
+				}
+				// Without an OS (e.g. OCI artifacts) no runtime runs it.
+				if p.OS == "" || p.OS == "unknown" || !opts.Platforms.Match(*p) {
+					continue
+				}
+			}
+			img.Platforms = append(img.Platforms, PlatformImage{Platform: p.String(), Digest: m.Digest.String(), Image: pi})
 		}
 	} else {
 		pi, err := desc.Image()
 		if err != nil {
 			return nil, fmt.Errorf("read image %s: %w", ref, err)
 		}
-		cf, err := pi.ConfigFile()
+		p, err := configPlatform(pi)
 		if err != nil {
-			return nil, fmt.Errorf("read config %s: %w", ref, err)
-		}
-		p := cf.Platform()
-		if p == nil {
-			p = &v1.Platform{OS: cf.OS, Architecture: cf.Architecture, Variant: cf.Variant}
+			return nil, fmt.Errorf("%s: %w", ref, err)
 		}
 		if opts.Platforms.Match(*p) {
 			img.Platforms = append(img.Platforms, PlatformImage{Platform: p.String(), Digest: desc.Digest.String(), Image: pi})
@@ -160,4 +168,17 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 		return nil, fmt.Errorf("%s: platforms %s: %w", ref, opts.Platforms, ErrNoPlatform)
 	}
 	return img, nil
+}
+
+// configPlatform reads the platform of an image from its config.
+func configPlatform(img v1.Image) (*v1.Platform, error) {
+	cf, err := img.ConfigFile()
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	p := cf.Platform()
+	if p == nil {
+		p = &v1.Platform{OS: cf.OS, Architecture: cf.Architecture, Variant: cf.Variant}
+	}
+	return p, nil
 }

@@ -29,6 +29,9 @@ type Report struct {
 	StartedAt  time.Time        `json:"startedAt"`
 	FinishedAt time.Time        `json:"finishedAt"`
 	Platforms  []PlatformReport `json:"platforms"`
+	// Complete is false if any file was skipped. A report without findings
+	// then does not mean the image is clean.
+	Complete bool `json:"complete"`
 }
 
 // PlatformReport is the result for one platform of an image.

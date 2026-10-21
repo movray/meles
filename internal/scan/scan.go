@@ -7,13 +7,17 @@ package scan
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"golang.org/x/sync/errgroup"
 
 	"git.itknecht.de/sugras/meles/internal/engine"
@@ -47,7 +51,14 @@ type layerResult struct {
 	meta *extract.Layer
 	mu   sync.Mutex
 	hits []hit
+	// limited holds files the engine could not scan completely.
+	limited []extract.Skipped
 }
+
+// limitSignaturePrefix marks clamd results for files that exceeded one of
+// its scan limits (with AlertExceedsMax). They are not malware findings, but
+// the files were not fully scanned.
+const limitSignaturePrefix = "Heuristics.Limits.Exceeded"
 
 type hit struct {
 	path, signature string
@@ -125,7 +136,10 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 				if li < len(createdBy) {
 					lr.CreatedBy = createdBy[li]
 				}
-				key := cacheKey(diffID.String(), version, s.Limits)
+				// The key includes the blob digest: the diffID comes from the
+				// image config and is only trusted once the layer was read
+				// and verified against it.
+				key := cacheKey(digest.String(), diffID.String(), version, s.Limits)
 				res, cached := s.Cache.get(key)
 				if !cached {
 					res, cached = fresh[key]
@@ -135,7 +149,7 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 						progress(Progress{Platform: p.Platform, Layer: li + 1, Layers: len(layers)})
 					}
 					res = &layerResult{}
-					if err := s.walkLayer(gctx, l, res, jobs); err != nil {
+					if err := s.walkLayer(gctx, l, diffID, res, jobs); err != nil {
 						return fmt.Errorf("%s: layer %d (%s): %w", p.Platform, li+1, diffID, err)
 					}
 					fresh[key] = res
@@ -170,7 +184,12 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 				if err != nil {
 					return fmt.Errorf("scan %s: %w", j.path, err)
 				}
-				if sig != "" {
+				switch {
+				case strings.HasPrefix(sig, limitSignaturePrefix):
+					j.res.mu.Lock()
+					j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: int64(len(j.data)), Reason: "engine limit exceeded (" + sig + ")"})
+					j.res.mu.Unlock()
+				case sig != "":
 					j.res.mu.Lock()
 					j.res.hits = append(j.res.hits, hit{j.path, sig})
 					j.res.mu.Unlock()
@@ -190,21 +209,27 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 	for pi, p := range img.Platforms {
 		rep.Platforms = append(rep.Platforms, buildPlatformReport(p, plats[pi].layers, plats[pi].results))
 	}
+	rep.Complete = len(rep.Skipped()) == 0
 	rep.FinishedAt = time.Now()
 	return rep, nil
 }
 
 // walkLayer reads layer l and queues its files. It returns once all files
-// are queued, not when they are scanned.
-func (s *Scanner) walkLayer(ctx context.Context, l interface {
-	Uncompressed() (io.ReadCloser, error)
-}, res *layerResult, jobs chan<- scanJob) error {
+// are queued, not when they are scanned. It reads the layer to the end, so
+// that the blob digest is verified, and checks the uncompressed content
+// against diffID from the image config.
+func (s *Scanner) walkLayer(ctx context.Context, l v1.Layer, diffID v1.Hash, res *layerResult, jobs chan<- scanJob) error {
+	if diffID.Algorithm != "sha256" {
+		return fmt.Errorf("unsupported diffID algorithm %q", diffID.Algorithm)
+	}
 	rc, err := l.Uncompressed()
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
 	defer rc.Close()
-	meta, err := extract.Walk(rc, s.Limits, func(f extract.File) error {
+	h := sha256.New()
+	r := io.TeeReader(rc, h)
+	meta, err := extract.Walk(r, s.Limits, func(f extract.File) error {
 		data, err := io.ReadAll(f.Content)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", f.Path, err)
@@ -218,6 +243,14 @@ func (s *Scanner) walkLayer(ctx context.Context, l interface {
 	})
 	if err != nil {
 		return err
+	}
+	// The tar reader stops at the end-of-archive marker. Read the rest so
+	// that go-containerregistry verifies the blob digest at EOF.
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != diffID.Hex {
+		return fmt.Errorf("content does not match diffID (got sha256:%s)", got)
 	}
 	res.meta = meta
 	return nil
@@ -251,7 +284,7 @@ func buildPlatformReport(p source.PlatformImage, layers []LayerReport, results [
 			}
 			pr.Findings = append(pr.Findings, f)
 		}
-		for _, sk := range r.meta.Skipped {
+		for _, sk := range append(r.meta.Skipped, r.limited...) {
 			pr.Skipped = append(pr.Skipped, SkippedFile{Platform: p.Platform, Layer: i + 1, Skipped: sk})
 		}
 	}

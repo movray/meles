@@ -55,6 +55,7 @@ func TestWalk(t *testing.T) {
 		entry{name: "data/.wh..wh..opq", content: ""},
 		entry{name: "../../escape", content: "x"},
 		entry{name: "big", content: "0123456789"},
+		entry{name: "odd", typeflag: '9'},
 	)
 
 	var got []string
@@ -91,8 +92,8 @@ func TestWalk(t *testing.T) {
 	if l.Entries["/etc"] {
 		t.Errorf("directory recorded as entry")
 	}
-	if len(l.Skipped) != 1 || l.Skipped[0].Path != "/big" {
-		t.Errorf("skipped = %v, want /big", l.Skipped)
+	if len(l.Skipped) != 2 || l.Skipped[0].Path != "/big" || l.Skipped[1].Path != "/odd" {
+		t.Errorf("skipped = %v, want /big and /odd (unsupported type)", l.Skipped)
 	}
 	if l.Files != 3 {
 		t.Errorf("Files = %d, want 3", l.Files)

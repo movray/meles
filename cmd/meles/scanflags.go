@@ -43,6 +43,10 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 	if f.concurrency < 1 {
 		return nil, fmt.Errorf("--concurrency must be at least 1")
 	}
+	// Files are held in memory while they are scanned.
+	if f.maxFileSize <= 0 {
+		return nil, fmt.Errorf("--max-file-size must be greater than 0")
+	}
 	return &scan.Scanner{
 		Engine:      c,
 		Limits:      extract.Limits{MaxFileSize: int64(f.maxFileSize), MaxLayerSize: int64(f.maxLayerSize), MaxFiles: f.maxFiles},

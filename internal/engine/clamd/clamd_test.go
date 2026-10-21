@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeClamd speaks enough of the clamd protocol for the client: VERSION,
@@ -172,4 +173,54 @@ func TestParseReply(t *testing.T) {
 			t.Errorf("ParseReply(%q) = %q, %v", tt.reply, got, err)
 		}
 	}
+}
+
+// clamd closes a session that waits longer than IdleTimeout (default 30s)
+// for the next command. The fake below does the same after 200ms.
+func TestSessionReconnectsAfterIdleTimeout(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "clamd.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go serveFake(&idleConn{Conn: conn, idle: 200 * time.Millisecond})
+		}
+	}()
+
+	c, err := New("unix://" + sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	sess, err := c.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if _, err := sess.Scan(ctx, strings.NewReader("file 1")); err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond) // e.g. the next layer is still downloading
+	if _, err := sess.Scan(ctx, strings.NewReader("file 2")); err != nil {
+		t.Errorf("scan after idle timeout: %v", err)
+	}
+}
+
+// idleConn makes reads fail once no data arrived within idle, like clamd's
+// IdleTimeout.
+type idleConn struct {
+	net.Conn
+	idle time.Duration
+}
+
+func (c *idleConn) Read(p []byte) (int, error) {
+	c.Conn.SetReadDeadline(time.Now().Add(c.idle))
+	return c.Conn.Read(p)
 }

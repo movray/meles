@@ -7,6 +7,7 @@ resources:
   - clamd.yaml
   - server.yaml
   - selftest-job.yaml
+  - networkpolicy.yaml
 images:
   - name: meles
     newName: git.itknecht.de/sugras/meles

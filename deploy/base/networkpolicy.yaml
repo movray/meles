@@ -1,0 +1,16 @@
+# clamd has no authentication: only meles pods of this namespace may connect.
+# To scan from CI jobs in other namespaces, add a namespaceSelector here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meles-clamd
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: meles, app.kubernetes.io/component: clamd}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: meles}
+      ports:
+        - {protocol: TCP, port: 3310}

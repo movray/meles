@@ -102,8 +102,14 @@ func Walk(r io.Reader, lim Limits, fn func(File) error) (*Layer, error) {
 			continue
 		}
 		l.Entries[p] = true
-		if h.Typeflag != tar.TypeReg {
-			// Symlinks, hard links and devices have no content of their own.
+		switch h.Typeflag {
+		case tar.TypeReg, tar.TypeGNUSparse:
+			// archive/tar expands sparse files when they are read.
+		case tar.TypeSymlink, tar.TypeLink, tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
+			// No content of their own.
+			continue
+		default:
+			l.Skipped = append(l.Skipped, Skipped{Path: p, Size: h.Size, Reason: fmt.Sprintf("unsupported tar entry type %q", h.Typeflag)})
 			continue
 		}
 		if lim.MaxFileSize > 0 && h.Size > lim.MaxFileSize {

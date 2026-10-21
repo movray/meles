@@ -17,6 +17,9 @@ data:
     StreamMaxLength 25M
     MaxFileSize 25M
     MaxScanSize 100M
+    # Answer Heuristics.Limits.Exceeded.* instead of a silent OK when a file
+    # or archive exceeds a limit; meles lists such files as skipped.
+    AlertExceedsMax yes
     MaxThreads 12
     MaxConnectionQueueLength 30
     # Sessions stay open while meles reads the next layer.

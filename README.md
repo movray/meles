@@ -56,6 +56,13 @@ No malware found.
 
 Unlike Trivy, meles fails the pipeline on findings by default.
 
+Files that were not scanned (above `--max-file-size`, or above one of clamd's
+scan limits) are listed as skipped, and the report is marked incomplete: the
+table says "Scan INCOMPLETE" instead of "No malware found.", the JSON report
+has `"complete": false`. By default this does not change the exit code. Use
+`--skipped-exit-code 2` to treat an incomplete scan as an error, or
+`--skipped-exit-code 1` to treat it like a finding.
+
 ### Configuration
 
 Every flag can also be set as an environment variable `MELES_<FLAG>`, e.g.
@@ -68,6 +75,7 @@ environment variables, which win over defaults.
 | `--platform` | `all` | `all`, `host` or a list like `linux/amd64,linux/arm64` |
 | `--format` | `table` | `table`, `json` |
 | `--exit-code` | `1` | exit code on findings; `2` is reserved for errors |
+| `--skipped-exit-code` | `0` | exit code when files were not scanned; `0` = report only |
 | `--max-file-size` | `25M` | larger files are skipped **and reported**; keep ≤ clamd's `StreamMaxLength` |
 | `--max-layer-size` | `4G` | hard limit per layer (uncompressed); exceeding it is an error |
 | `--max-files` | `500000` | hard limit of entries per layer |

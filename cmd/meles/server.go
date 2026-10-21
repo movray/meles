@@ -29,6 +29,7 @@ func newServerCmd() *cobra.Command {
 		runTimeout time.Duration
 		timezone   string
 		cacheSize  int
+		cachePaths int
 	)
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -61,6 +62,7 @@ authenticating proxy (e.g. oauth2-proxy).`,
 			}
 
 			cache := scan.NewCache(cacheSize)
+			cache.MaxPaths = cachePaths
 			sc, err := sf.scanner(cache)
 			if err != nil {
 				return err
@@ -112,5 +114,6 @@ authenticating proxy (e.g. oauth2-proxy).`,
 	cmd.Flags().DurationVar(&runTimeout, "run-timeout", time.Hour, "maximum duration of a single run")
 	cmd.Flags().StringVar(&timezone, "timezone", "Local", "time zone for display and schedules without CRON_TZ, e.g. Europe/Berlin")
 	cmd.Flags().IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory")
+	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd
 }

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"git.itknecht.de/sugras/meles/internal/scan"
 )
@@ -38,27 +40,30 @@ func Write(w io.Writer, format string, reps []*scan.Report) error {
 
 // Table writes a human-readable report.
 func Table(w io.Writer, r *scan.Report) error {
-	fmt.Fprintf(w, "\n%s (%s)\n", r.Ref, short(r.Digest))
-	fmt.Fprintf(w, "engine: %s, signatures %s, scanned in %s\n\n", r.Engine.Engine, r.Engine.Signatures, r.FinishedAt.Sub(r.StartedAt).Round(1e6))
+	fmt.Fprintf(w, "\n%s (%s)\n", safe(r.Ref), safe(short(r.Digest)))
+	fmt.Fprintf(w, "engine: %s, signatures %s, scanned in %s\n\n", safe(r.Engine.Engine), safe(r.Engine.Signatures), r.FinishedAt.Sub(r.StartedAt).Round(1e6))
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "PLATFORM\tLAYERS\tFILES\tFINDINGS\tSKIPPED")
 	for _, p := range r.Platforms {
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\n", p.Platform, len(p.Layers), p.Files, len(p.Findings), len(p.Skipped))
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\n", safe(p.Platform), len(p.Layers), p.Files, len(p.Findings), len(p.Skipped))
 	}
 	if err := tw.Flush(); err != nil {
 		return err
 	}
 
 	fs := r.Findings()
-	if len(fs) == 0 {
+	switch {
+	case len(fs) == 0 && r.Complete:
 		fmt.Fprintln(w, "\nNo malware found.")
-	} else {
+	case len(fs) == 0:
+		fmt.Fprintf(w, "\nNo malware found in the scanned files. Scan INCOMPLETE: %d files were not scanned (see below).\n", len(r.Skipped()))
+	default:
 		fmt.Fprintf(w, "\nFindings (%d):\n", len(fs))
 		tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "PLATFORM\tLAYER\tPATH\tSIGNATURE\tSTATUS\tCREATED BY")
 		for _, f := range fs {
-			fmt.Fprintf(tw, "%s\t%d (%s)\t%s\t%s\t%s\t%s\n", f.Platform, f.Layer, short(f.DiffID), f.Path, f.Signature, Status(f), truncate(f.CreatedBy, 60))
+			fmt.Fprintf(tw, "%s\t%d (%s)\t%s\t%s\t%s\t%s\n", safe(f.Platform), f.Layer, short(f.DiffID), safe(f.Path), safe(f.Signature), Status(f), safe(truncate(f.CreatedBy, 60)))
 		}
 		if err := tw.Flush(); err != nil {
 			return err
@@ -70,7 +75,7 @@ func Table(w io.Writer, r *scan.Report) error {
 		tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "PLATFORM\tLAYER\tPATH\tSIZE\tREASON")
 		for _, s := range sk {
-			fmt.Fprintf(tw, "%s\t%d\t%s\t%d\t%s\n", s.Platform, s.Layer, s.Path, s.Size, s.Reason)
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%d\t%s\n", safe(s.Platform), s.Layer, safe(s.Path), s.Size, safe(s.Reason))
 		}
 		return tw.Flush()
 	}
@@ -83,6 +88,18 @@ func Status(f scan.Finding) string {
 		return "present"
 	}
 	return fmt.Sprintf("%s in layer %d (%s)", f.Status, f.HiddenByLayer, f.HiddenHow)
+}
+
+// safe quotes s if it contains control or other non-printable characters.
+// File names, platforms and history come from the image and must not be
+// able to forge lines or terminal escape sequences in CI logs.
+func safe(s string) string {
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return strconv.Quote(s)
+		}
+	}
+	return s
 }
 
 func short(digest string) string {

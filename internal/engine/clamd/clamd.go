@@ -97,16 +97,11 @@ func ParseVersion(raw string) engine.Version {
 // Open starts an IDSESSION. Commands are sent one at a time, so replies
 // arrive in order.
 func (c *Client) Open(ctx context.Context) (engine.Session, error) {
-	conn, err := c.dial(ctx)
-	if err != nil {
+	s := &session{client: c}
+	if err := s.connect(ctx); err != nil {
 		return nil, err
 	}
-	conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	if _, err := conn.Write([]byte("zIDSESSION\x00")); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("start clamd session: %w", err)
-	}
-	return &session{client: c, conn: conn, r: bufio.NewReader(conn)}, nil
+	return s, nil
 }
 
 type session struct {
@@ -119,11 +114,46 @@ type session struct {
 // errBroken marks a session that must not be reused.
 var errBroken = errors.New("clamd session broken")
 
+// connError is an I/O error on the connection, as opposed to an error
+// reported by clamd.
+type connError struct{ err error }
+
+func (e *connError) Error() string { return e.err.Error() }
+func (e *connError) Unwrap() error { return e.err }
+
+func (s *session) connect(ctx context.Context) error {
+	conn, err := s.client.dial(ctx)
+	if err != nil {
+		return err
+	}
+	conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	if _, err := conn.Write([]byte("zIDSESSION\x00")); err != nil {
+		conn.Close()
+		return fmt.Errorf("start clamd session: %w", err)
+	}
+	s.conn, s.r = conn, bufio.NewReader(conn)
+	return nil
+}
+
+// Scan scans r. clamd closes sessions that were idle for longer than its
+// IdleTimeout, e.g. while meles downloads a large layer. On a connection
+// error Scan therefore retries once on a new session if r is an io.Seeker.
 func (s *session) Scan(ctx context.Context, r io.Reader) (string, error) {
 	if s.broken {
 		return "", errBroken
 	}
 	sig, err := s.scan(ctx, r)
+	var ce *connError
+	if seeker, ok := r.(io.Seeker); ok && errors.As(err, &ce) && ctx.Err() == nil {
+		s.conn.Close()
+		if _, serr := seeker.Seek(0, io.SeekStart); serr != nil {
+			err = fmt.Errorf("rewind input: %w", serr)
+		} else if cerr := s.connect(ctx); cerr != nil {
+			err = fmt.Errorf("reconnect after %v: %w", err, cerr)
+		} else {
+			sig, err = s.scan(ctx, r)
+		}
+	}
 	if err != nil {
 		// After a protocol or I/O error the reply stream is out of sync.
 		s.broken = true
@@ -141,7 +171,7 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 	defer stop()
 
 	if _, err := s.conn.Write([]byte("zINSTREAM\x00")); err != nil {
-		return "", fmt.Errorf("send INSTREAM: %w", err)
+		return "", &connError{fmt.Errorf("send INSTREAM: %w", err)}
 	}
 	buf := make([]byte, 4+chunkSize)
 	for {
@@ -149,7 +179,7 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 		if n > 0 {
 			binary.BigEndian.PutUint32(buf, uint32(n))
 			if _, werr := s.conn.Write(buf[:4+n]); werr != nil {
-				return "", fmt.Errorf("send chunk: %w", werr)
+				return "", &connError{fmt.Errorf("send chunk: %w", werr)}
 			}
 		}
 		if errors.Is(err, io.EOF) {
@@ -160,7 +190,7 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 		}
 	}
 	if _, err := s.conn.Write([]byte{0, 0, 0, 0}); err != nil {
-		return "", fmt.Errorf("send end of stream: %w", err)
+		return "", &connError{fmt.Errorf("send end of stream: %w", err)}
 	}
 
 	resp, err := s.r.ReadString(0)
@@ -168,7 +198,7 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return "", fmt.Errorf("read reply: %w", err)
+		return "", &connError{fmt.Errorf("read reply: %w", err)}
 	}
 	return ParseReply(strings.TrimSuffix(resp, "\x00"))
 }

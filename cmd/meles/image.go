@@ -16,6 +16,7 @@ func newImageCmd() *cobra.Command {
 		sf        scanFlags
 		format    string
 		exitCode  int
+		skipped   int
 		platforms string
 	)
 	cmd := &cobra.Command{
@@ -28,6 +29,9 @@ func newImageCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, refs []string) error {
 			if exitCode == exitError || exitCode < 0 || exitCode > 255 {
 				return fmt.Errorf("--exit-code %d: must be 0..255 and not %d, which is reserved for errors", exitCode, exitError)
+			}
+			if skipped < 0 || skipped > 255 {
+				return fmt.Errorf("--skipped-exit-code %d: must be 0..255", skipped)
 			}
 			pf, err := source.ParsePlatforms(platforms)
 			if err != nil {
@@ -59,6 +63,8 @@ func newImageCmd() *cobra.Command {
 				return exitCodeError{exitError}
 			case anyInfected(reps) && exitCode != exitClean:
 				return exitCodeError{exitCode}
+			case anyIncomplete(reps) && skipped != exitClean:
+				return exitCodeError{skipped}
 			}
 			return nil
 		},
@@ -66,8 +72,18 @@ func newImageCmd() *cobra.Command {
 	sf.register(cmd.Flags())
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json")
 	cmd.Flags().IntVar(&exitCode, "exit-code", exitFound, "exit code when malware is found (0 = report only; 2 is reserved for errors)")
+	cmd.Flags().IntVar(&skipped, "skipped-exit-code", exitClean, "exit code when files were not scanned (e.g. above --max-file-size): 0 = report only, 2 = treat as error, 1 = treat as finding")
 	cmd.Flags().StringVar(&platforms, "platform", "all", "platforms of multi-arch images: all, host or a list like linux/amd64,linux/arm64")
 	return cmd
+}
+
+func anyIncomplete(reps []*scan.Report) bool {
+	for _, r := range reps {
+		if !r.Complete {
+			return true
+		}
+	}
+	return false
 }
 
 func anyInfected(reps []*scan.Report) bool {
