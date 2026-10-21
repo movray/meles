@@ -32,8 +32,61 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
+{{- define "meles.clamdAuth" -}}
+{{- if and .Values.clamd.enabled .Values.clamd.auth.enabled }}true{{ end }}
+{{- end }}
+
+{{- define "meles.clamdTokenSecret" -}}
+{{- .Values.clamd.auth.existingSecret | default (printf "%s-clamd-token" (include "meles.fullname" .)) }}
+{{- end }}
+
+{{- define "meles.clamdTLSSecret" -}}
+{{- .Values.clamd.auth.tls.existingSecret | default (printf "%s-clamd-tls" (include "meles.fullname" .)) }}
+{{- end }}
+
+{{/* Port of the clamd pod that clients reach: the proxy with auth. */}}
+{{- define "meles.clamdPodPort" -}}
+{{- if include "meles.clamdAuth" . }}3311{{ else }}3310{{ end }}
+{{- end }}
+
+{{- define "meles.clamdDnsNames" -}}
+{{- $svc := printf "%s-clamd" (include "meles.fullname" .) }}
+{{- $names := list $svc (printf "%s.%s" $svc .Release.Namespace) (printf "%s.%s.svc" $svc .Release.Namespace) (printf "%s.%s.svc.cluster.local" $svc .Release.Namespace) }}
+{{- concat $names .Values.clamd.auth.tls.extraDnsNames | toJson }}
+{{- end }}
+
+{{/* Environment, mounts and volumes of a pod that scans with clamd. */}}
+{{- define "meles.clamdClientEnv" -}}
+- {name: MELES_CLAMD, value: {{ include "meles.clamdAddress" . | quote }}}
+{{- if include "meles.clamdAuth" . }}
+- name: MELES_CLAMD_TOKEN
+  valueFrom:
+    secretKeyRef: {name: {{ include "meles.clamdTokenSecret" . }}, key: token}
+- {name: MELES_CLAMD_CA, value: /clamd-ca/ca.crt}
+{{- end }}
+{{- end }}
+
+{{- define "meles.clamdClientMounts" -}}
+{{- if include "meles.clamdAuth" . }}
+- {name: clamd-ca, mountPath: /clamd-ca, readOnly: true}
+{{- end }}
+{{- end }}
+
+{{- define "meles.clamdClientVolumes" -}}
+{{- if include "meles.clamdAuth" . }}
+# Only the CA certificate, not the proxy's private key.
+- name: clamd-ca
+  secret:
+    secretName: {{ include "meles.clamdTLSSecret" . }}
+    items:
+      - {key: ca.crt, path: ca.crt}
+{{- end }}
+{{- end }}
+
 {{- define "meles.clamdAddress" -}}
-{{- if .Values.clamd.enabled }}
+{{- if include "meles.clamdAuth" . }}
+{{- printf "tls://%s-clamd:3310" (include "meles.fullname" .) }}
+{{- else if .Values.clamd.enabled }}
 {{- printf "tcp://%s-clamd:3310" (include "meles.fullname" .) }}
 {{- else }}
 {{- required "clamd.address is required if clamd.enabled is false" .Values.clamd.address }}

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 
@@ -17,6 +20,8 @@ import (
 // scanFlags are shared by all commands that scan.
 type scanFlags struct {
 	clamd        string
+	clamdToken   string
+	clamdCA      string
 	concurrency  int
 	maxFileSize  sizeValue
 	maxLayerSize sizeValue
@@ -27,7 +32,9 @@ type scanFlags struct {
 func (f *scanFlags) register(fs *pflag.FlagSet) {
 	f.maxFileSize = 25 << 20
 	f.maxLayerSize = 4 << 30
-	fs.StringVar(&f.clamd, "clamd", "unix:///run/clamav/clamd.ctl", "clamd address: unix:///path or tcp://host:3310")
+	fs.StringVar(&f.clamd, "clamd", "unix:///run/clamav/clamd.ctl", "clamd address: unix:///path, tcp://host:3310 or tls://host:3310 (meles clamd-proxy)")
+	fs.StringVar(&f.clamdToken, "clamd-token", "", "token for meles clamd-proxy; prefer MELES_CLAMD_TOKEN, a flag is visible in the process list")
+	fs.StringVar(&f.clamdCA, "clamd-ca", "", "CA certificate (PEM) of meles clamd-proxy; default: system roots")
 	fs.IntVar(&f.concurrency, "concurrency", 4, "parallel clamd sessions per scan")
 	fs.Var(&f.maxFileSize, "max-file-size", "skip and report files larger than this; keep it at or below clamd's StreamMaxLength")
 	fs.Var(&f.maxLayerSize, "max-layer-size", "fail on layers larger than this (uncompressed)")
@@ -39,6 +46,18 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 	c, err := clamd.New(f.clamd)
 	if err != nil {
 		return nil, err
+	}
+	c.Token = f.clamdToken
+	if f.clamdCA != "" {
+		pem, err := os.ReadFile(f.clamdCA)
+		if err != nil {
+			return nil, fmt.Errorf("--clamd-ca: %w", err)
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("--clamd-ca %s: no PEM certificate", f.clamdCA)
+		}
+		c.TLSConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	}
 	if f.concurrency < 1 {
 		return nil, fmt.Errorf("--concurrency must be at least 1")

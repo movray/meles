@@ -1,0 +1,67 @@
+{{- if include "meles.clamdAuth" . }}
+{{- $fullname := include "meles.fullname" . }}
+{{- if not .Values.clamd.auth.existingSecret }}
+{{- $name := printf "%s-clamd-token" $fullname }}
+{{- $token := randAlphaNum 48 | b64enc }}
+{{- with lookup "v1" "Secret" .Release.Namespace $name }}
+{{- with .data }}{{ with .token }}{{ $token = . }}{{ end }}{{ end }}
+{{- end }}
+# Token for meles clamd-proxy; generated once and kept on upgrades.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+type: Opaque
+data:
+  token: {{ $token }}
+---
+{{- end }}
+{{- if not .Values.clamd.auth.tls.existingSecret }}
+{{- $name := printf "%s-clamd-tls" $fullname }}
+{{- if .Values.clamd.auth.tls.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+spec:
+  secretName: {{ $name }}
+  dnsNames: {{ include "meles.clamdDnsNames" . }}
+  issuerRef:
+    {{- required "clamd.auth.tls.certManager.issuerRef is required" .Values.clamd.auth.tls.certManager.issuerRef | toYaml | nindent 4 }}
+{{- else }}
+{{- $old := dict }}
+{{- with lookup "v1" "Secret" .Release.Namespace $name }}
+{{- with .data }}{{ if index . "tls.crt" }}{{ $old = . }}{{ end }}{{ end }}
+{{- end }}
+# Self-signed CA and certificate for meles clamd-proxy; generated once and
+# kept on upgrades. Delete the secret to issue a new one (e.g. after adding
+# extraDnsNames), then restart server and clamd.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+type: kubernetes.io/tls
+data:
+{{- if $old }}
+  ca.crt: {{ index $old "ca.crt" }}
+  tls.crt: {{ index $old "tls.crt" }}
+  tls.key: {{ index $old "tls.key" }}
+{{- else }}
+{{- $ca := genCA (printf "%s-clamd-ca" $fullname) 3650 }}
+{{- $cert := genSignedCert (printf "%s-clamd" $fullname) nil (include "meles.clamdDnsNames" . | fromJsonArray) 3650 $ca }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+  tls.crt: {{ $cert.Cert | b64enc }}
+  tls.key: {{ $cert.Key | b64enc }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

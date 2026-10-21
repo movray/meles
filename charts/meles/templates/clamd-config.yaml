@@ -15,6 +15,10 @@ data:
     # foreground they log to the console anyway.
     DatabaseDirectory /var/lib/clamav
     TCPSocket 3310
+    {{- if include "meles.clamdAuth" . }}
+    # Only meles clamd-proxy in the same pod may connect.
+    TCPAddr 127.0.0.1
+    {{- end }}
     LocalSocket /tmp/clamd.sock
     # meles skips larger files itself and reports them.
     StreamMaxLength {{ .Values.scan.maxFileSize }}

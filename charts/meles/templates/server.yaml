@@ -57,7 +57,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: [server]
           env:
-            - {name: MELES_CLAMD, value: {{ include "meles.clamdAddress" . | quote }}}
+            {{- include "meles.clamdClientEnv" . | nindent 12 }}
             - {name: MELES_DB, value: /data/meles.db}
             - {name: MELES_TIMEZONE, value: {{ .Values.server.timezone | quote }}}
             - {name: MELES_WORKERS, value: {{ .Values.server.workers | quote }}}
@@ -85,6 +85,7 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: tmp, mountPath: /tmp}
+            {{- include "meles.clamdClientMounts" . | nindent 12 }}
             {{- if .Values.server.registryAuthSecret }}
             - {name: docker-config, mountPath: /docker, readOnly: true}
             {{- end }}
@@ -94,6 +95,7 @@ spec:
             claimName: {{ .Values.server.persistence.existingClaim | default (printf "%s-server" $fullname) }}
         - name: tmp
           emptyDir: {}
+        {{- include "meles.clamdClientVolumes" . | nindent 8 }}
         {{- if .Values.server.registryAuthSecret }}
         - name: docker-config
           secret:

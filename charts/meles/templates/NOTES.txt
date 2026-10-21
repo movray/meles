@@ -12,6 +12,13 @@ Check the whole chain once clamd is ready:
 
   kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "meles.fullname" . }}-selftest selftest-$(date +%s)
 {{- end }}
+{{- if include "meles.clamdAuth" . }}
+
+clamd is only reachable through meles clamd-proxy (TLS + token) at
+  tls://{{ include "meles.fullname" . }}-clamd.{{ .Release.Namespace }}:3310
+Token: secret {{ include "meles.clamdTokenSecret" . }}, key token
+CA:    secret {{ include "meles.clamdTLSSecret" . }}, key ca.crt
+{{- end }}
 {{- if .Values.server.enabled }}
 
 Open the web UI:

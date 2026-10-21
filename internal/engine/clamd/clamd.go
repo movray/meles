@@ -2,11 +2,16 @@
 //
 // meles never links against libclamav (GPLv2): clamd runs as a separate
 // process and keeps the signature database in memory once.
+//
+// With a tls:// address the client talks to meles clamd-proxy instead, which
+// adds TLS and token authentication in front of clamd: the first command on
+// every connection is "zAUTH <token>\0", answered with "AUTH OK\0".
 package clamd
 
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -23,16 +28,29 @@ import (
 // StreamMaxLength; 64 KiB keeps memory per session small.
 const chunkSize = 64 << 10
 
+// Authentication with meles clamd-proxy.
+const (
+	AuthCommand = "AUTH"
+	AuthOK      = "AUTH OK"
+	AuthFailed  = "AUTH FAILED"
+)
+
 // Client connects to clamd. The zero value is not usable; use New.
 type Client struct {
 	network, address string
+	tls              bool
 	// Timeout bounds dialing and each single scan.
 	Timeout time.Duration
+	// TLSConfig is used for tls:// addresses. Nil means the system roots.
+	TLSConfig *tls.Config
+	// Token authenticates with meles clamd-proxy. It is only sent over TLS.
+	Token string
 }
 
 var _ engine.Engine = (*Client)(nil)
 
-// New parses addr ("unix:///run/clamav/clamd.ctl" or "tcp://host:3310").
+// New parses addr: "unix:///run/clamav/clamd.ctl", "tcp://host:3310" or
+// "tls://host:3310" (meles clamd-proxy).
 func New(addr string) (*Client, error) {
 	u, err := url.Parse(addr)
 	if err != nil {
@@ -42,13 +60,13 @@ func New(addr string) (*Client, error) {
 	switch u.Scheme {
 	case "unix":
 		c.network, c.address = "unix", u.Path
-	case "tcp":
+	case "tcp", "tls":
 		if u.Port() == "" {
 			return nil, fmt.Errorf("clamd address %q: missing port", addr)
 		}
-		c.network, c.address = "tcp", u.Host
+		c.network, c.address, c.tls = "tcp", u.Host, u.Scheme == "tls"
 	default:
-		return nil, fmt.Errorf("clamd address %q: scheme must be unix or tcp", addr)
+		return nil, fmt.Errorf("clamd address %q: scheme must be unix, tcp or tls", addr)
 	}
 	if c.address == "" {
 		return nil, fmt.Errorf("clamd address %q: missing path or host", addr)
@@ -57,12 +75,74 @@ func New(addr string) (*Client, error) {
 }
 
 func (c *Client) dial(ctx context.Context) (net.Conn, error) {
-	d := net.Dialer{Timeout: 10 * time.Second}
-	conn, err := d.DialContext(ctx, c.network, c.address)
+	if c.Token != "" && !c.tls {
+		return nil, errors.New("clamd token requires a tls:// address")
+	}
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	var (
+		conn net.Conn
+		err  error
+	)
+	if c.tls {
+		cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+		if c.TLSConfig != nil {
+			cfg = c.TLSConfig.Clone()
+		}
+		if cfg.ServerName == "" {
+			cfg.ServerName, _, _ = net.SplitHostPort(c.address)
+		}
+		conn, err = (&tls.Dialer{NetDialer: d, Config: cfg}).DialContext(ctx, c.network, c.address)
+	} else {
+		conn, err = d.DialContext(ctx, c.network, c.address)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("connect clamd %s://%s: %w", c.network, c.address, err)
+		return nil, fmt.Errorf("connect clamd %s: %w", c.url(), err)
+	}
+	if c.Token != "" {
+		if err := authenticate(conn, c.Token); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("clamd %s: %w", c.url(), err)
+		}
 	}
 	return conn, nil
+}
+
+func (c *Client) url() string {
+	switch {
+	case c.tls:
+		return "tls://" + c.address
+	case c.network == "unix":
+		return "unix://" + c.address
+	}
+	return "tcp://" + c.address
+}
+
+// authenticate sends the token to meles clamd-proxy and waits for AUTH OK.
+// It reads byte by byte so that nothing after the reply is consumed.
+func authenticate(conn net.Conn, token string) error {
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+	defer conn.SetDeadline(time.Time{})
+	if _, err := conn.Write([]byte("z" + AuthCommand + " " + token + "\x00")); err != nil {
+		return fmt.Errorf("send token: %w", err)
+	}
+	var reply []byte
+	b := make([]byte, 1)
+	for len(reply) < 64 {
+		if _, err := io.ReadFull(conn, b); err != nil {
+			return fmt.Errorf("read authentication reply: %w", err)
+		}
+		if b[0] == 0 {
+			break
+		}
+		reply = append(reply, b[0])
+	}
+	switch string(reply) {
+	case AuthOK:
+		return nil
+	case AuthFailed:
+		return errors.New("authentication failed (wrong token)")
+	}
+	return fmt.Errorf("unexpected authentication reply %q", reply)
 }
 
 // Version sends VERSION, e.g. "ClamAV 1.4.3/28159/Tue Oct 20 08:24:12 2026".
@@ -80,7 +160,14 @@ func (c *Client) Version(ctx context.Context) (engine.Version, error) {
 	if err != nil {
 		return engine.Version{}, fmt.Errorf("read VERSION reply: %w", err)
 	}
-	return ParseVersion(strings.TrimSuffix(resp, "\x00")), nil
+	resp = strings.TrimSuffix(resp, "\x00")
+	switch {
+	case resp == AuthFailed:
+		return engine.Version{}, errors.New("clamd proxy requires a token (--clamd-token)")
+	case !strings.HasPrefix(resp, "ClamAV "):
+		return engine.Version{}, fmt.Errorf("unexpected VERSION reply %q", resp)
+	}
+	return ParseVersion(resp), nil
 }
 
 // ParseVersion splits a clamd VERSION reply into engine and signature

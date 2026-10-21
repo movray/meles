@@ -21,6 +21,9 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/clamd-config.yaml") . | sha256sum }}
     spec:
+      {{- if include "meles.clamdAuth" . }}
+      {{- include "meles.imagePullSecrets" . | nindent 6 }}
+      {{- end }}
       securityContext:
         seccompProfile: {type: RuntimeDefault}
       {{- include "meles.scheduling" .Values.clamd | nindent 6 }}
@@ -30,19 +33,27 @@ spec:
           imagePullPolicy: {{ .Values.clamd.image.pullPolicy }}
           env:
             - {name: CLAMAV_NO_MILTERD, value: "true"}
+          {{- if not (include "meles.clamdAuth" .) }}
           ports:
             - {name: clamd, containerPort: 3310}
+          {{- end }}
           # clamd accepts connections only once the database is loaded.
+          # clamdcheck.sh pings "localhost", which may resolve to ::1 while
+          # clamd listens on 127.0.0.1 only with auth.
+          {{- $check := `["clamdcheck.sh"]` }}
+          {{- if include "meles.clamdAuth" . }}
+          {{- $check = `["sh", "-c", "printf 'zPING\\0' | nc 127.0.0.1 3310 | grep -q PONG"]` }}
+          {{- end }}
           startupProbe:
-            exec: {command: ["clamdcheck.sh"]}
+            exec: {command: {{ $check }}}
             periodSeconds: 10
             failureThreshold: 60
           readinessProbe:
-            exec: {command: ["clamdcheck.sh"]}
+            exec: {command: {{ $check }}}
             periodSeconds: 30
             timeoutSeconds: 10
           livenessProbe:
-            exec: {command: ["clamdcheck.sh"]}
+            exec: {command: {{ $check }}}
             periodSeconds: 60
             timeoutSeconds: 10
             failureThreshold: 5
@@ -55,11 +66,57 @@ spec:
             - {name: config, mountPath: /etc/clamav/clamd.conf, subPath: clamd.conf}
             - {name: config, mountPath: /etc/clamav/freshclam.conf, subPath: freshclam.conf}
             - {name: db, mountPath: /var/lib/clamav}
+        {{- if include "meles.clamdAuth" . }}
+        - name: proxy
+          image: {{ include "meles.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [clamd-proxy]
+          env:
+            - {name: MELES_LISTEN, value: ":3311"}
+            - {name: MELES_UPSTREAM, value: "tcp://127.0.0.1:3310"}
+            - {name: MELES_TLS_CERT, value: /tls/tls.crt}
+            - {name: MELES_TLS_KEY, value: /tls/tls.key}
+            - {name: MELES_TOKEN_FILE, value: /token/token}
+            - {name: MELES_MAX_CONNECTIONS, value: {{ .Values.clamd.auth.proxy.maxConnections | quote }}}
+          ports:
+            - {name: clamd-tls, containerPort: 3311}
+          readinessProbe:
+            tcpSocket: {port: clamd-tls}
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.clamd.auth.proxy.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: token, mountPath: /token, readOnly: true}
+        {{- end }}
       volumes:
         - name: config
           configMap: {name: {{ $fullname }}-clamd}
         - name: db
           emptyDir: {}
+        {{- if include "meles.clamdAuth" . }}
+        - name: tls
+          secret:
+            secretName: {{ include "meles.clamdTLSSecret" . }}
+            # Readable for the proxy (fsGroup is not set: clamd starts as root).
+            defaultMode: 0444
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+        - name: token
+          secret:
+            secretName: {{ include "meles.clamdTokenSecret" . }}
+            defaultMode: 0444
+            items:
+              - {key: token, path: token}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -73,5 +130,7 @@ spec:
     {{- include "meles.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: clamd
   ports:
-    - {name: clamd, port: 3310, targetPort: clamd}
+    - name: clamd
+      port: 3310
+      targetPort: {{ if include "meles.clamdAuth" . }}clamd-tls{{ else }}clamd{{ end }}
 {{- end }}

@@ -71,7 +71,9 @@ environment variables, which win over defaults.
 
 | Flag | Default | |
 |---|---|---|
-| `--clamd` | `unix:///run/clamav/clamd.ctl` | `unix:///path` or `tcp://host:3310` |
+| `--clamd` | `unix:///run/clamav/clamd.ctl` | `unix:///path`, `tcp://host:3310` or `tls://host:3310` (clamd-proxy) |
+| `--clamd-token` | | token for `meles clamd-proxy`; set it as `MELES_CLAMD_TOKEN`, a flag shows up in the process list |
+| `--clamd-ca` | system roots | CA certificate of `meles clamd-proxy` |
 | `--platform` | `all` | `all`, `host` or a list like `linux/amd64,linux/arm64` |
 | `--format` | `table` | `table`, `json` |
 | `--exit-code` | `1` | exit code on findings; `2` is reserved for errors |
@@ -172,12 +174,35 @@ Important values (see `charts/meles/values.yaml`):
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
+| `clamd.auth.enabled` | `true` | TLS + token in front of clamd (see below) |
+| `clamd.auth.existingSecret` | `""` | secret with key `token`; empty: generated and kept |
+| `clamd.auth.tls.*` | self-signed | `existingSecret`, `certManager.enabled` + `issuerRef`, `extraDnsNames` |
 | `networkPolicy.enabled` | `true` | clamd only for pods of the release, the mirror only for clamd |
 | `networkPolicy.clamdExtraFrom` | `[]` | further clients of clamd, e.g. CI runners in other namespaces |
 | `networkPolicy.serverFrom` | `[]` | restrict access to the UI, e.g. to the ingress controller |
 
 meles has no login of its own: expose the UI only behind an authenticating
 proxy (e.g. oauth2-proxy) or keep it reachable via port-forward.
+
+### clamd authentication
+
+clamd has no authentication, and any client could send `SHUTDOWN` or
+`SCAN <path>`. With `clamd.auth.enabled` (default) clamd listens only on
+127.0.0.1 in its pod; the sidecar `meles clamd-proxy` accepts clients over
+TLS with a token and forwards only `PING`, `VERSION`, `IDSESSION`, `INSTREAM`
+and `END`. Server and selftest of the release are configured automatically.
+Other clients, e.g. CI jobs in another namespace (also allow them with
+`networkPolicy.clamdExtraFrom`):
+
+```sh
+kubectl -n meles get secret meles-clamd-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > clamd-ca.crt
+export MELES_CLAMD_TOKEN=$(kubectl -n meles get secret meles-clamd-token -o jsonpath='{.data.token}' | base64 -d)
+meles image --clamd tls://meles-clamd.meles:3310 --clamd-ca clamd-ca.crt "$IMAGE"
+```
+
+The token secret may hold several tokens, one per line: add the new one,
+switch the clients, remove the old one. The proxy reloads the token file and
+the certificate when they change.
 
 The PVCs of mirror and server are kept on `helm uninstall`
 (`helm.sh/resource-policy: keep`): the databases count against the Cisco

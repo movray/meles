@@ -35,7 +35,7 @@ spec:
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               args: [selftest]
               env:
-                - {name: MELES_CLAMD, value: {{ include "meles.clamdAddress" . | quote }}}
+                {{- include "meles.clamdClientEnv" . | nindent 16 }}
                 - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
               resources:
                 {{- toYaml .Values.selftest.resources | nindent 16 }}
@@ -43,4 +43,12 @@ spec:
                 allowPrivilegeEscalation: false
                 capabilities: {drop: [ALL]}
                 readOnlyRootFilesystem: true
+              {{- with include "meles.clamdClientMounts" . }}
+              volumeMounts:
+                {{- . | nindent 16 }}
+              {{- end }}
+          {{- with include "meles.clamdClientVolumes" . }}
+          volumes:
+            {{- . | nindent 12 }}
+          {{- end }}
 {{- end }}
