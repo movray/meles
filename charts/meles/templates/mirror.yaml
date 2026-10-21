@@ -43,7 +43,7 @@ spec:
         {{- include "meles.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: mirror
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/mirror-config.yaml") . | sha256sum }}
+        checksum/config: {{ (include (print $.Template.BasePath "/mirror-config.yaml") . | fromYaml).data | toYaml | sha256sum }}
     spec:
       securityContext:
         runAsNonRoot: true

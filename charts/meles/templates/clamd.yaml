@@ -19,7 +19,8 @@ spec:
         {{- include "meles.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: clamd
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/clamd-config.yaml") . | sha256sum }}
+        # Only the data: a new chart version alone must not restart clamd.
+        checksum/config: {{ (include (print $.Template.BasePath "/clamd-config.yaml") . | fromYaml).data | toYaml | sha256sum }}
     spec:
       {{- if include "meles.clamdAuth" . }}
       {{- include "meles.imagePullSecrets" . | nindent 6 }}
@@ -27,6 +28,32 @@ spec:
       securityContext:
         seccompProfile: {type: RuntimeDefault}
       {{- include "meles.scheduling" .Values.clamd | nindent 6 }}
+      {{- if .Values.mirror.enabled }}
+      # freshclam exits, and with it the clamd container, if the mirror has
+      # no databases yet (first install, mirror restarting).
+      initContainers:
+        - name: wait-for-mirror
+          image: "{{ .Values.clamd.image.repository }}:{{ .Values.clamd.image.tag }}"
+          imagePullPolicy: {{ .Values.clamd.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              for f in main.cvd daily.cvd bytecode.cvd; do
+                until wget -q --spider "http://{{ $fullname }}-mirror/$f"; do
+                  echo "waiting for $f on the mirror"; sleep 10
+                done
+              done
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 32Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+      {{- end }}
       containers:
         - name: clamd
           image: "{{ .Values.clamd.image.repository }}:{{ .Values.clamd.image.tag }}"
