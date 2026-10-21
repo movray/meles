@@ -1,0 +1,76 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+{{- if .Values.clamd.enabled }}
+# clamd has no authentication: only pods of this release (server, selftest)
+# and clamdExtraFrom may connect.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-clamd
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clamd
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "meles.selectorLabels" . | nindent 14 }}
+        {{- with .Values.networkPolicy.clamdExtraFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 3310}
+{{- end }}
+{{- if and .Values.mirror.enabled .Values.clamd.enabled }}
+---
+# Only freshclam in the clamd pods fetches from the mirror.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-mirror
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mirror
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "meles.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: clamd
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}
+{{- if and .Values.server.enabled .Values.networkPolicy.serverFrom }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.serverFrom | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}
+{{- end }}

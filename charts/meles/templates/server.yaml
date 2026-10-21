@@ -1,0 +1,171 @@
+{{- if .Values.server.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+{{- if not .Values.server.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  annotations:
+    # Keep the run history on uninstall.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.server.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.server.persistence.size }}
+{{- end }}
+---
+# Web UI, JSON API, scheduler and run history (SQLite on a volume, so
+# exactly one replica).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "meles.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      {{- include "meles.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      {{- include "meles.scheduling" .Values.server | nindent 6 }}
+      containers:
+        - name: server
+          image: {{ include "meles.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [server]
+          env:
+            - {name: MELES_CLAMD, value: {{ include "meles.clamdAddress" . | quote }}}
+            - {name: MELES_DB, value: /data/meles.db}
+            - {name: MELES_TIMEZONE, value: {{ .Values.server.timezone | quote }}}
+            - {name: MELES_WORKERS, value: {{ .Values.server.workers | quote }}}
+            - {name: MELES_CONCURRENCY, value: {{ .Values.server.concurrency | quote }}}
+            - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
+            {{- if .Values.server.registryAuthSecret }}
+            - {name: DOCKER_CONFIG, value: /docker}
+            {{- end }}
+            {{- with .Values.server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.server.registryAuthSecret }}
+            - {name: docker-config, mountPath: /docker, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.server.persistence.existingClaim | default (printf "%s-server" $fullname) }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.server.registryAuthSecret }}
+        - name: docker-config
+          secret:
+            secretName: {{ .Values.server.registryAuthSecret }}
+            items:
+              - {key: .dockerconfigjson, path: config.json}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  selector:
+    {{- include "meles.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  ports:
+    - {name: http, port: {{ .Values.server.service.port }}, targetPort: http}
+{{- if .Values.server.httpRoute.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  parentRefs:
+    {{- required "server.httpRoute.parentRefs is required" .Values.server.httpRoute.parentRefs | toYaml | nindent 4 }}
+  {{- with .Values.server.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ $fullname }}-server
+          port: {{ .Values.server.service.port }}
+{{- end }}
+{{- if .Values.server.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.server.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.server.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.server.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "server.ingress.host is required" .Values.server.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-server
+                port: {name: http}
+{{- end }}
+{{- end }}

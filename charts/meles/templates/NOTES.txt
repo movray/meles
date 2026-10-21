@@ -1,0 +1,34 @@
+meles {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+{{- if .Values.clamd.enabled }}
+
+clamd needs a few minutes to load the signature database{{ if .Values.mirror.enabled }}, and the mirror
+first has to download it from Cisco Talos{{ end }}. Watch it with:
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+{{- end }}
+{{- if .Values.selftest.enabled }}
+
+Check the whole chain once clamd is ready:
+
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "meles.fullname" . }}-selftest selftest-$(date +%s)
+{{- end }}
+{{- if .Values.server.enabled }}
+
+Open the web UI:
+{{- if .Values.server.httpRoute.enabled }}
+  via the HTTPRoute {{ include "meles.fullname" . }}-server {{ with .Values.server.httpRoute.hostnames }}({{ join ", " . }}){{ end }}
+{{- else if .Values.server.ingress.enabled }}
+  http{{ if .Values.server.ingress.tls }}s{{ end }}://{{ .Values.server.ingress.host }}/
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "meles.fullname" . }}-server 8080:{{ .Values.server.service.port }}
+  http://localhost:8080/
+{{- end }}
+
+meles has no login of its own. Expose the UI only behind an authenticating
+proxy (e.g. oauth2-proxy) or keep it internal.
+{{- end }}
+{{- if and (not .Values.mirror.enabled) (not .Values.clamd.freshclam.privateMirror) .Values.clamd.enabled }}
+
+WARNING: without mirror and clamd.freshclam.privateMirror every clamd pod
+downloads the databases from Cisco Talos directly. Mind their rate limits.
+{{- end }}

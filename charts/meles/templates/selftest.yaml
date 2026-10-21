@@ -1,0 +1,46 @@
+{{- if .Values.selftest.enabled }}
+# Checks the whole chain: generated EICAR test images, pulled from an
+# in-memory registry and scanned by clamd. Run it manually with
+#   kubectl create job --from=cronjob/{{ include "meles.fullname" . }}-selftest selftest-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "meles.fullname" . }}-selftest
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: selftest
+spec:
+  schedule: {{ .Values.selftest.schedule | quote }}
+  suspend: {{ .Values.selftest.suspend }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "meles.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: selftest
+        spec:
+          restartPolicy: Never
+          {{- include "meles.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: selftest
+              image: {{ include "meles.image" . | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: [selftest]
+              env:
+                - {name: MELES_CLAMD, value: {{ include "meles.clamdAddress" . | quote }}}
+                - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
+              resources:
+                {{- toYaml .Values.selftest.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+                readOnlyRootFilesystem: true
+{{- end }}

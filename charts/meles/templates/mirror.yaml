@@ -1,0 +1,111 @@
+{{- if .Values.mirror.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+{{- if not .Values.mirror.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-mirror
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror
+  annotations:
+    # Keep the databases on uninstall: re-downloading counts against the
+    # Cisco Talos rate limits.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.mirror.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mirror.persistence.size }}
+{{- end }}
+---
+# cvdupdate and nginx share one RWO volume, so they run in one pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-mirror
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mirror
+  template:
+    metadata:
+      labels:
+        {{- include "meles.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mirror
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/mirror-config.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      {{- include "meles.scheduling" .Values.mirror | nindent 6 }}
+      containers:
+        - name: cvdupdate
+          image: "{{ .Values.mirror.cvdupdate.image.repository }}:{{ .Values.mirror.cvdupdate.image.tag }}"
+          imagePullPolicy: {{ .Values.mirror.cvdupdate.image.pullPolicy }}
+          command: ["/bin/sh", "/scripts/update.sh"]
+          resources:
+            {{- toYaml .Values.mirror.cvdupdate.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: db, mountPath: /mirror}
+            - {name: config, mountPath: /scripts}
+            - {name: tmp, mountPath: /tmp}
+        - name: nginx
+          image: "{{ .Values.mirror.nginx.image.repository }}:{{ .Values.mirror.nginx.image.tag }}"
+          imagePullPolicy: {{ .Values.mirror.nginx.image.pullPolicy }}
+          command: ["nginx", "-g", "daemon off;", "-c", "/config/nginx.conf"]
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          resources:
+            {{- toYaml .Values.mirror.nginx.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: db, mountPath: /mirror, readOnly: true}
+            - {name: config, mountPath: /config}
+            - {name: nginx-tmp, mountPath: /tmp}
+      volumes:
+        - name: db
+          persistentVolumeClaim:
+            claimName: {{ .Values.mirror.persistence.existingClaim | default (printf "%s-mirror" $fullname) }}
+        - name: config
+          configMap: {name: {{ $fullname }}-mirror}
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-mirror
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror
+spec:
+  selector:
+    {{- include "meles.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror
+  ports:
+    - {name: http, port: 80, targetPort: http}
+{{- end }}

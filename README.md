@@ -140,25 +140,48 @@ API: `GET/POST /api/scans`, `GET/PUT/DELETE /api/scans/{id}`,
 
 ## Kubernetes
 
-`deploy/base` is a Kustomize base with three roles in the namespace `meles`:
+The Helm chart in `charts/meles` installs three roles:
 
 | Component | Purpose |
 |---|---|
-| `meles-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly). |
-| `meles-clamd` | clamd workers; get signatures from the mirror via freshclam `PrivateMirror`. |
-| `meles-server` | web UI, scheduler, run history (SQLite on a PVC). |
+| `<release>-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly). |
+| `<release>-clamd` | clamd workers; get signatures from the mirror via freshclam `PrivateMirror`. |
+| `<release>-server` | web UI, scheduler, run history (SQLite on a PVC). |
 
-Plus a suspended CronJob `meles-selftest` to check the chain on demand.
+Plus a suspended CronJob `<release>-selftest` to check the chain on demand.
+Each role can be turned off; with `clamd.enabled=false` set `clamd.address`
+to an existing clamd.
 
 ```sh
-kubectl apply -k deploy/base
+kubectl create namespace meles
+kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
+helm install meles charts/meles -n meles -f my-values.yaml
 kubectl -n meles create job --from=cronjob/meles-selftest selftest-1
 kubectl -n meles port-forward svc/meles-server 8080:80
 ```
 
-The `meles` image is private: create a pull secret `meles-pull` in the
-namespace. For private images to scan, put a Docker config into the secret
-`meles-registry-auth` (type `kubernetes.io/dockerconfigjson`).
+The clamd image starts as root and drops privileges itself, so the namespace
+needs the `baseline` Pod Security level, not `restricted`.
+
+Important values (see `charts/meles/values.yaml`):
+
+| Value | Default | |
+|---|---|---|
+| `imagePullSecrets` | `[]` | pull secrets for the meles image |
+| `scan.maxFileSize` | `25M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` |
+| `server.timezone` | `UTC` | time zone of cron schedules |
+| `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
+| `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
+| `networkPolicy.enabled` | `true` | clamd only for pods of the release, the mirror only for clamd |
+| `networkPolicy.clamdExtraFrom` | `[]` | further clients of clamd, e.g. CI runners in other namespaces |
+| `networkPolicy.serverFrom` | `[]` | restrict access to the UI, e.g. to the ingress controller |
+
+meles has no login of its own: expose the UI only behind an authenticating
+proxy (e.g. oauth2-proxy) or keep it reachable via port-forward.
+
+The PVCs of mirror and server are kept on `helm uninstall`
+(`helm.sh/resource-policy: keep`): the databases count against the Cisco
+Talos rate limits, the server holds the run history.
 
 clamd needs about 1.5 GB of memory with the full database and briefly almost
 twice that during a reload.

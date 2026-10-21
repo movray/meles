@@ -1,0 +1,139 @@
+# Default values for meles.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: git.itknecht.de/sugras/meles
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Pull secrets for the meles image, e.g. [{name: meles-pull}].
+imagePullSecrets: []
+
+# Shared by the server, the selftest and the clamd configuration.
+scan:
+  # Larger files are skipped and reported. clamd's StreamMaxLength and
+  # MaxFileSize are set to the same value.
+  maxFileSize: 25M
+
+server:
+  enabled: true
+  # Time zone for cron schedules.
+  timezone: UTC
+  # Runs executed in parallel.
+  workers: 1
+  # Parallel clamd sessions per run.
+  concurrency: 4
+  # Secret of type kubernetes.io/dockerconfigjson with credentials for
+  # private registries to scan (optional).
+  registryAuthSecret: ""
+  # Additional environment variables, e.g. MELES_CACHE_PATHS.
+  extraEnv: []
+  persistence:
+    # SQLite database; the server therefore runs with exactly one replica.
+    size: 1Gi
+    storageClass: ""
+    existingClaim: ""
+  service:
+    port: 80
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    # Buffers up to concurrency x maxFileSize per scan plus the layer cache.
+    limits: {memory: 1Gi}
+  # meles has no login of its own: expose the UI only behind an
+  # authenticating proxy (e.g. oauth2-proxy) or keep it internal.
+  httpRoute:
+    enabled: false
+    # e.g. [{name: gateway, namespace: gateway-system}]
+    parentRefs: []
+    hostnames: []
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    # e.g. [{secretName: meles-tls, hosts: [meles.example.com]}]
+    tls: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+clamd:
+  enabled: true
+  # clamd address if clamd.enabled is false, e.g. tcp://clamd.other:3310.
+  address: ""
+  image:
+    repository: clamav/clamav
+    tag: "1.4"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  maxScanSize: 100M
+  maxThreads: 12
+  # Appended to clamd.conf.
+  extraConfig: ""
+  freshclam:
+    # Database mirror for freshclam if mirror.enabled is false. Empty means
+    # Cisco Talos directly - mind their rate limits.
+    privateMirror: ""
+    checksPerDay: 24
+  resources:
+    requests: {cpu: 100m, memory: 1536Mi}
+    # A database reload briefly needs almost twice the memory.
+    limits: {memory: 3Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# The only component that talks to Cisco Talos: cvdupdate fetches the ClamAV
+# databases once per hour, nginx serves them to freshclam in the clamd pods.
+mirror:
+  enabled: true
+  cvdupdate:
+    image:
+      repository: python
+      tag: 3.12-slim
+      pullPolicy: IfNotPresent
+    resources:
+      requests: {cpu: 10m, memory: 64Mi}
+      limits: {memory: 256Mi}
+  nginx:
+    image:
+      repository: nginxinc/nginx-unprivileged
+      tag: 1.27-alpine
+      pullPolicy: IfNotPresent
+    resources:
+      requests: {cpu: 10m, memory: 16Mi}
+      limits: {memory: 64Mi}
+  persistence:
+    size: 2Gi
+    storageClass: ""
+    existingClaim: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Checks the whole chain: EICAR test images from an in-memory registry,
+# scanned by clamd. Run it manually with
+#   kubectl create job --from=cronjob/<release>-selftest selftest-$(date +%s)
+selftest:
+  enabled: true
+  schedule: "0 6 * * *"
+  suspend: true
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+networkPolicy:
+  # clamd has no authentication. Only pods of this release may connect to
+  # it, only clamd may fetch from the mirror. Egress is not restricted.
+  enabled: true
+  # Additional NetworkPolicyPeers allowed to reach clamd on 3310, e.g. CI
+  # runners in another namespace:
+  #   - namespaceSelector:
+  #       matchLabels: {kubernetes.io/metadata.name: gitea-runner}
+  clamdExtraFrom: []
+  # NetworkPolicyPeers allowed to reach the server, e.g. the ingress
+  # controller. Empty: no restriction.
+  serverFrom: []

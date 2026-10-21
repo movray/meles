@@ -1,0 +1,77 @@
+{{- if .Values.clamd.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-clamd
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+spec:
+  replicas: {{ .Values.clamd.replicas }}
+  selector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clamd
+  template:
+    metadata:
+      labels:
+        {{- include "meles.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clamd
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/clamd-config.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      {{- include "meles.scheduling" .Values.clamd | nindent 6 }}
+      containers:
+        - name: clamd
+          image: "{{ .Values.clamd.image.repository }}:{{ .Values.clamd.image.tag }}"
+          imagePullPolicy: {{ .Values.clamd.image.pullPolicy }}
+          env:
+            - {name: CLAMAV_NO_MILTERD, value: "true"}
+          ports:
+            - {name: clamd, containerPort: 3310}
+          # clamd accepts connections only once the database is loaded.
+          startupProbe:
+            exec: {command: ["clamdcheck.sh"]}
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            exec: {command: ["clamdcheck.sh"]}
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            exec: {command: ["clamdcheck.sh"]}
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.clamd.resources | nindent 12 }}
+          # The image's entrypoint starts as root and drops to the clamav user.
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - {name: config, mountPath: /etc/clamav/clamd.conf, subPath: clamd.conf}
+            - {name: config, mountPath: /etc/clamav/freshclam.conf, subPath: freshclam.conf}
+            - {name: db, mountPath: /var/lib/clamav}
+      volumes:
+        - name: config
+          configMap: {name: {{ $fullname }}-clamd}
+        - name: db
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-clamd
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+spec:
+  selector:
+    {{- include "meles.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+  ports:
+    - {name: clamd, port: 3310, targetPort: clamd}
+{{- end }}

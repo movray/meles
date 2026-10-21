@@ -1,0 +1,53 @@
+{{- if .Values.clamd.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-clamd
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+data:
+  clamd.conf: |
+    Foreground yes
+    LogTime yes
+    # No LogFile: clamd and freshclam refuse /dev/stdout (symlink); in the
+    # foreground they log to the console anyway.
+    DatabaseDirectory /var/lib/clamav
+    TCPSocket 3310
+    LocalSocket /tmp/clamd.sock
+    # meles skips larger files itself and reports them.
+    StreamMaxLength {{ .Values.scan.maxFileSize }}
+    MaxFileSize {{ .Values.scan.maxFileSize }}
+    MaxScanSize {{ .Values.clamd.maxScanSize }}
+    # Answer Heuristics.Limits.Exceeded.* instead of a silent OK when a file
+    # or archive exceeds a limit; meles lists such files as skipped.
+    AlertExceedsMax yes
+    MaxThreads {{ .Values.clamd.maxThreads }}
+    MaxConnectionQueueLength 30
+    # Sessions stay open while meles reads the next layer.
+    IdleTimeout 120
+    ReadTimeout 180
+    CommandReadTimeout 30
+    # yes: no scan pause during a reload, but almost twice the memory.
+    ConcurrentDatabaseReload yes
+    SelfCheck 3600
+    {{- with .Values.clamd.extraConfig }}
+    {{- . | nindent 4 }}
+    {{- end }}
+  freshclam.conf: |
+    Foreground yes
+    LogTime yes
+    DatabaseDirectory /var/lib/clamav
+    DatabaseOwner clamav
+    {{- if .Values.mirror.enabled }}
+    # Only the mirror talks to Cisco Talos.
+    PrivateMirror http://{{ $fullname }}-mirror
+    ScriptedUpdates no
+    {{- else if .Values.clamd.freshclam.privateMirror }}
+    PrivateMirror {{ .Values.clamd.freshclam.privateMirror }}
+    ScriptedUpdates no
+    {{- end }}
+    Checks {{ .Values.clamd.freshclam.checksPerDay }}
+    NotifyClamd /etc/clamav/clamd.conf
+{{- end }}
