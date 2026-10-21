@@ -93,6 +93,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{/* Port of the server pod that clients reach: oauth2-proxy if enabled. */}}
+{{- define "meles.serverPodPort" -}}
+{{- if .Values.server.oauth2Proxy.enabled }}4180{{ else }}8080{{ end }}
+{{- end }}
+
 {{- define "meles.imagePullSecrets" -}}
 {{- with .Values.imagePullSecrets }}
 imagePullSecrets:

@@ -31,8 +31,12 @@ Open the web UI:
   http://localhost:8080/
 {{- end }}
 
-meles has no login of its own. Expose the UI only behind an authenticating
-proxy (e.g. oauth2-proxy) or keep it internal.
+{{- if .Values.server.oauth2Proxy.enabled }}
+Login via oauth2-proxy with {{ .Values.server.oauth2Proxy.issuerUrl }} (client {{ .Values.server.oauth2Proxy.clientId }}).
+{{- else }}
+meles has no login of its own. Enable server.oauth2Proxy or keep the UI
+internal.
+{{- end }}
 {{- end }}
 {{- if and (not .Values.mirror.enabled) (not .Values.clamd.freshclam.privateMirror) .Values.clamd.enabled }}
 

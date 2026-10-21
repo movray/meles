@@ -59,6 +59,10 @@ spec:
           env:
             {{- include "meles.clamdClientEnv" . | nindent 12 }}
             - {name: MELES_DB, value: /data/meles.db}
+            {{- if .Values.server.oauth2Proxy.enabled }}
+            # Only oauth2-proxy in the same pod may connect.
+            - {name: MELES_LISTEN, value: "127.0.0.1:8080"}
+            {{- end }}
             - {name: MELES_TIMEZONE, value: {{ .Values.server.timezone | quote }}}
             - {name: MELES_WORKERS, value: {{ .Values.server.workers | quote }}}
             - {name: MELES_CONCURRENCY, value: {{ .Values.server.concurrency | quote }}}
@@ -69,6 +73,17 @@ spec:
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- if .Values.server.oauth2Proxy.enabled }}
+          # The kubelet cannot reach 127.0.0.1; probe through oauth2-proxy,
+          # which lets /healthz pass without login. Named ports only resolve
+          # within the same container, hence the number.
+          readinessProbe:
+            httpGet: {path: /healthz, port: 4180}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 4180}
+            periodSeconds: 30
+            failureThreshold: 5
+          {{- else }}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
@@ -76,6 +91,7 @@ spec:
           livenessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 30
+          {{- end }}
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
           securityContext:
@@ -89,6 +105,59 @@ spec:
             {{- if .Values.server.registryAuthSecret }}
             - {name: docker-config, mountPath: /docker, readOnly: true}
             {{- end }}
+        {{- with .Values.server.oauth2Proxy }}
+        {{- if .enabled }}
+        - name: oauth2-proxy
+          image: "{{ .image.repository }}:{{ .image.tag }}"
+          imagePullPolicy: {{ .image.pullPolicy }}
+          args:
+            {{- range .allowedGroups }}
+            - --allowed-group={{ . }}
+            {{- end }}
+            {{- range .emailDomains }}
+            - --email-domain={{ . }}
+            {{- end }}
+            {{- with .extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - {name: OAUTH2_PROXY_HTTP_ADDRESS, value: "0.0.0.0:4180"}
+            - {name: OAUTH2_PROXY_UPSTREAMS, value: "http://127.0.0.1:8080"}
+            - {name: OAUTH2_PROXY_PROVIDER, value: oidc}
+            - {name: OAUTH2_PROXY_OIDC_ISSUER_URL, value: {{ required "server.oauth2Proxy.issuerUrl is required" .issuerUrl | quote }}}
+            - {name: OAUTH2_PROXY_CLIENT_ID, value: {{ .clientId | quote }}}
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: {{ required "server.oauth2Proxy.existingSecret is required" .existingSecret }}, key: client-secret}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef: {name: {{ $fullname }}-oauth2-proxy, key: cookie-secret}
+            - {name: OAUTH2_PROXY_COOKIE_SECURE, value: {{ .cookieSecure | quote }}}
+            - {name: OAUTH2_PROXY_COOKIE_NAME, value: _meles_oauth2}
+            {{- with .redirectUrl }}
+            - {name: OAUTH2_PROXY_REDIRECT_URL, value: {{ . | quote }}}
+            {{- end }}
+            - {name: OAUTH2_PROXY_CODE_CHALLENGE_METHOD, value: S256}
+            - {name: OAUTH2_PROXY_REVERSE_PROXY, value: "true"}
+            - {name: OAUTH2_PROXY_SKIP_PROVIDER_BUTTON, value: "true"}
+            # Kubelet probes; /healthz only reports whether the database works.
+            - {name: OAUTH2_PROXY_SKIP_AUTH_ROUTES, value: "GET=^/healthz$"}
+            - {name: OAUTH2_PROXY_SILENCE_PING_LOGGING, value: "true"}
+          ports:
+            - {name: http, containerPort: 4180}
+          readinessProbe:
+            httpGet: {path: /ping, port: http}
+          livenessProbe:
+            httpGet: {path: /ping, port: http}
+            periodSeconds: 30
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+        {{- end }}
+        {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:

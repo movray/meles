@@ -71,6 +71,6 @@ spec:
     - from:
         {{- toYaml .Values.networkPolicy.serverFrom | nindent 8 }}
       ports:
-        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: {{ include "meles.serverPodPort" . }}}
 {{- end }}
 {{- end }}

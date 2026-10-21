@@ -181,8 +181,34 @@ Important values (see `charts/meles/values.yaml`):
 | `networkPolicy.clamdExtraFrom` | `[]` | further clients of clamd, e.g. CI runners in other namespaces |
 | `networkPolicy.serverFrom` | `[]` | restrict access to the UI, e.g. to the ingress controller |
 
-meles has no login of its own: expose the UI only behind an authenticating
-proxy (e.g. oauth2-proxy) or keep it reachable via port-forward.
+### Login for the web UI
+
+meles has no login of its own. Without one, anyone who reaches the UI can
+create and start scans and read all reports. The chart can run
+[oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) as a sidecar
+in front of the UI: only users logged in with your OIDC provider (Keycloak,
+GitHub, Entra ID, ...) get through, optionally only members of certain
+groups. The server then listens on 127.0.0.1, so the login cannot be bypassed
+from inside the cluster either.
+
+1. Create an OIDC client (confidential, standard flow) with the redirect URI
+   `https://<ui-host>/oauth2/callback`. For `allowedGroups` the ID token needs
+   a `groups` claim (Keycloak: group membership mapper).
+2. Store its secret: `kubectl -n meles create secret generic meles-oidc --from-literal=client-secret=...`
+3. Set the values:
+
+```yaml
+server:
+  oauth2Proxy:
+    enabled: true
+    issuerUrl: https://keycloak.example.com/realms/main
+    clientId: meles
+    existingSecret: meles-oidc
+    allowedGroups: [meles-admins]
+```
+
+Without oauth2-proxy keep the UI internal (port-forward) or put another
+authenticating proxy in front of it.
 
 ### clamd authentication
 
