@@ -3,3 +3,7 @@
 *.db
 *.db-shm
 *.db-wal
+
+# Emacs
+.#*
+\#*\#
