@@ -51,25 +51,27 @@ No malware found.
 | Code | Meaning |
 |---|---|
 | `0` | clean (or findings with `--exit-code 0`, report-only mode) |
-| `1` | malware found (change with `--exit-code`) |
+| `1` | malware found, or files were not scanned (change with `--exit-code` and `--skipped-exit-code`) |
 | `2` | error: pull, engine or configuration. **Never** reported as clean. |
 
 Unlike Trivy, meles fails the pipeline on findings by default.
 
 Files that were not scanned (above `--max-file-size`, or above one of clamd's
-scan limits) are listed as skipped, and the report is marked incomplete: the
-table says "Scan INCOMPLETE" instead of "No malware found.", the JSON report
-has `"complete": false`. By default this does not change the exit code. Use
-`--skipped-exit-code 2` to treat an incomplete scan as an error, or
-`--skipped-exit-code 1` to treat it like a finding.
+limits) are listed as skipped, and the report is marked incomplete: the table
+says "Scan INCOMPLETE" instead of "No malware found.", the JSON report has
+`"complete": false`, and meles exits with `1` like on a finding. Any size
+limit can be dodged by making a file larger than it, so an unscanned file
+must not pass a security gate. Use `--skipped-exit-code 0` to only report
+skipped files, or `2` to treat them as an error.
 
-Any size limit can be dodged by making a file larger than it. Raise
-`--max-file-size` up to ClamAV's own limit of `2047M` if your images contain
-large files: files above 4 MiB are streamed to clamd, so this costs no memory
-in meles. clamd's `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` must be
-at least as large (the Helm chart sets them from `scan.maxFileSize`). In a
-security gate, use `--skipped-exit-code 1`, so that an oversized file fails
-the pipeline instead of passing unscanned.
+`--max-file-size` defaults to `768M` and can be raised up to ClamAV's own
+limit of `2047M`. Files above 4 MiB are streamed to clamd, so a high limit
+costs no memory in meles; clamd keeps each stream in a temporary file while
+it scans it. clamd's `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` must
+be at least as large (the Helm chart sets them from `scan.maxFileSize`;
+clamd's own default `StreamMaxLength` is only `100M`). Files that clamd
+refuses as too large are reported as skipped. Larger files, such as big ML
+models, cannot be scanned by ClamAV at all.
 
 ### Configuration
 
@@ -85,8 +87,8 @@ environment variables, which win over defaults.
 | `--platform` | `all` | `all`, `host` or a list like `linux/amd64,linux/arm64` |
 | `--format` | `table` | `table`, `json` |
 | `--exit-code` | `1` | exit code on findings; `2` is reserved for errors |
-| `--skipped-exit-code` | `0` | exit code when files were not scanned; `0` = report only |
-| `--max-file-size` | `25M` | larger files are skipped **and reported**; at most `2047M`, keep ≤ clamd's `StreamMaxLength` |
+| `--skipped-exit-code` | `1` | exit code when files were not scanned; `0` = report only |
+| `--max-file-size` | `768M` | larger files are skipped **and reported**; at most `2047M`, keep ≤ clamd's `StreamMaxLength` |
 | `--max-layer-size` | `4G` | hard limit per layer (uncompressed); exceeding it is an error |
 | `--max-files` | `500000` | hard limit of entries per layer |
 | `--concurrency` | `4` | parallel clamd sessions |
@@ -178,7 +180,7 @@ Important values (see `charts/meles/values.yaml`):
 | Value | Default | |
 |---|---|---|
 | `imagePullSecrets` | `[]` | pull secrets for the meles image |
-| `scan.maxFileSize` | `25M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` (`MaxScanSize` at least this); at most `2047M` |
+| `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` (`MaxScanSize` at least this); at most `2047M` |
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |

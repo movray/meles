@@ -4,8 +4,14 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"io"
 )
+
+// ErrTooLarge is returned (wrapped) by Session.Scan when the engine refused a
+// stream because of its size, e.g. above clamd's StreamMaxLength. The file
+// counts as skipped, not as an error; the session must not be reused.
+var ErrTooLarge = errors.New("stream too large for the engine")
 
 // Engine opens scan sessions.
 type Engine interface {

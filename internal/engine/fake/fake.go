@@ -5,6 +5,7 @@ package fake
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync/atomic"
 
@@ -18,6 +19,8 @@ type Engine struct {
 	Scans      atomic.Int64
 	// Err, if set, is returned by every scan.
 	Err error
+	// MaxSize, if set, rejects larger streams like clamd's StreamMaxLength.
+	MaxSize int
 }
 
 var _ engine.Engine = (*Engine)(nil)
@@ -42,6 +45,9 @@ func (s session) Scan(_ context.Context, r io.Reader) (string, error) {
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return "", err
+	}
+	if s.e.MaxSize > 0 && len(b) > s.e.MaxSize {
+		return "", fmt.Errorf("fake: size limit exceeded: %w", engine.ErrTooLarge)
 	}
 	if bytes.Contains(b, []byte(testimage.EICAR())) {
 		return "Eicar-Test-Signature", nil

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.itknecht.de/sugras/meles/internal/engine"
 )
 
 // fakeClamd speaks enough of the clamd protocol for the client: VERSION,
@@ -128,7 +131,7 @@ func TestSession(t *testing.T) {
 
 	// A stream above clamd's StreamMaxLength must fail with a clear error.
 	tooLong := io.MultiReader(strings.NewReader(strings.Repeat("a", streamMaxLength+chunkSize)), strings.NewReader("EVIL"))
-	if _, err := s.Scan(ctx, tooLong); err == nil || !strings.Contains(err.Error(), "StreamMaxLength") {
+	if _, err := s.Scan(ctx, tooLong); !errors.Is(err, engine.ErrTooLarge) || !strings.Contains(err.Error(), "StreamMaxLength") {
 		t.Fatalf("stream above StreamMaxLength: err = %v", err)
 	}
 	if s, err = c.Open(ctx); err != nil {

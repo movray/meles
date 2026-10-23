@@ -72,7 +72,7 @@ func newImageCmd() *cobra.Command {
 	sf.register(cmd.Flags())
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json")
 	cmd.Flags().IntVar(&exitCode, "exit-code", exitFound, "exit code when malware is found (0 = report only; 2 is reserved for errors)")
-	cmd.Flags().IntVar(&skipped, "skipped-exit-code", exitClean, "exit code when files were not scanned (e.g. above --max-file-size): 0 = report only, 2 = treat as error, 1 = treat as finding")
+	cmd.Flags().IntVar(&skipped, "skipped-exit-code", exitFound, "exit code when files were not scanned (e.g. above --max-file-size): 1 = treat as finding, 2 = treat as error, 0 = report only")
 	cmd.Flags().StringVar(&platforms, "platform", "all", "platforms of multi-arch images: all, host or a list like linux/amd64,linux/arm64")
 	return cmd
 }

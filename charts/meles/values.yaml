@@ -20,7 +20,7 @@ scan:
   # streamed to clamd, so a higher value costs no memory in meles; clamd
   # keeps each stream in a temporary file in the container while it scans
   # it (up to maxThreads x maxFileSize of ephemeral storage).
-  maxFileSize: 25M
+  maxFileSize: 768M
 
 server:
   enabled: true

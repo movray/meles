@@ -30,7 +30,7 @@ type scanFlags struct {
 }
 
 func (f *scanFlags) register(fs *pflag.FlagSet) {
-	f.maxFileSize = 25 << 20
+	f.maxFileSize = 768 << 20
 	f.maxLayerSize = 4 << 30
 	fs.StringVar(&f.clamd, "clamd", "unix:///run/clamav/clamd.ctl", "clamd address: unix:///path, tcp://host:3310 or tls://host:3310 (meles clamd-proxy)")
 	fs.StringVar(&f.clamdToken, "clamd-token", "", "token for meles clamd-proxy; prefer MELES_CLAMD_TOKEN, a flag is visible in the process list")

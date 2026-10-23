@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -202,7 +203,11 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 		return nil, err
 	}
 	for key, res := range fresh {
-		s.Cache.put(key, res)
+		// Files the engine could not scan may be scanned after a change of
+		// its limits, which is not part of the key.
+		if len(res.limited) == 0 {
+			s.Cache.put(key, res)
+		}
 	}
 
 	for pi, p := range img.Platforms {
@@ -227,6 +232,16 @@ func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob)
 		r = bytes.NewReader(j.data)
 	}
 	sig, err := (*sess).Scan(ctx, r)
+	if errors.Is(err, engine.ErrTooLarge) {
+		// Not scanned, like a file above MaxFileSize. The engine dropped
+		// the session; the next file gets a new one.
+		(*sess).Close()
+		*sess = nil
+		j.res.mu.Lock()
+		j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: j.size, Reason: "refused by the engine as too large (clamd: StreamMaxLength below --max-file-size)"})
+		j.res.mu.Unlock()
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("scan %s: %w", j.path, err)
 	}

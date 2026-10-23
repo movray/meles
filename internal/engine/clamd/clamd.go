@@ -410,7 +410,7 @@ func ParseReply(resp string) (string, error) {
 	case strings.HasPrefix(msg, "stream: ") && strings.HasSuffix(msg, " FOUND"):
 		return strings.TrimSuffix(strings.TrimPrefix(msg, "stream: "), " FOUND"), nil
 	case strings.Contains(msg, "size limit exceeded"):
-		return "", fmt.Errorf("clamd: %s (its StreamMaxLength is below --max-file-size)", msg)
+		return "", fmt.Errorf("clamd: %s (its StreamMaxLength is below --max-file-size): %w", msg, engine.ErrTooLarge)
 	default:
 		return "", fmt.Errorf("clamd: %s", msg)
 	}

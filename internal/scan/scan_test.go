@@ -214,13 +214,17 @@ func TestScanStreamsLargeFiles(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		engine  *fake.Engine
-		want    []string
-		wantErr bool
+		name        string
+		engine      *fake.Engine
+		want        []string
+		wantSkipped int
+		wantErr     bool
 	}{
-		{"findings", &fake.Engine{}, []string{"/c-big-evil present", "/d-small present"}, false},
-		{"engine error", &fake.Engine{Err: errors.New("engine down")}, nil, true},
+		{"findings", &fake.Engine{}, []string{"/c-big-evil present", "/d-small present"}, 0, false},
+		// Like clamd with a StreamMaxLength below --max-file-size: the big
+		// files are skipped, the rest is still scanned.
+		{"engine size limit", &fake.Engine{MaxSize: bufferLimit}, []string{"/d-small present"}, 2, false},
+		{"engine error", &fake.Engine{Err: errors.New("engine down")}, nil, 0, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -239,9 +243,44 @@ func TestScanStreamsLargeFiles(t *testing.T) {
 			if got := findings(rep); fmt.Sprint(got) != fmt.Sprint(tt.want) {
 				t.Errorf("findings = %v, want %v", got, tt.want)
 			}
-			if !rep.Complete || rep.Platforms[0].Files != 4 {
-				t.Errorf("complete = %v, files = %d", rep.Complete, rep.Platforms[0].Files)
+			if n := len(rep.Skipped()); n != tt.wantSkipped || rep.Complete != (n == 0) || rep.Platforms[0].Files != 4 {
+				t.Errorf("skipped = %v, complete = %v, files = %d", rep.Skipped(), rep.Complete, rep.Platforms[0].Files)
 			}
 		})
+	}
+}
+
+// A layer with files the engine refused is not cached: they are scanned
+// once the engine's limits are raised.
+func TestScanDoesNotCacheEngineLimits(t *testing.T) {
+	reg, err := testimage.Serve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reg.Close()
+	img, err := testimage.Build([]testimage.Layer{{Files: map[string]string{"/big": strings.Repeat("a", 100) + testimage.EICAR()}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Push("big", img); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &fake.Engine{MaxSize: 50}
+	s := newScanner(e, NewCache(100))
+	ctx := context.Background()
+	rep, err := s.Scan(ctx, reg.Ref("big"), source.PlatformFilter{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Complete || rep.Infected() {
+		t.Fatalf("complete = %v, infected = %v, want an incomplete report", rep.Complete, rep.Infected())
+	}
+	e.MaxSize = 0
+	if rep, err = s.Scan(ctx, reg.Ref("big"), source.PlatformFilter{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Complete || !rep.Infected() {
+		t.Errorf("after raising the limit: complete = %v, infected = %v", rep.Complete, rep.Infected())
 	}
 }
