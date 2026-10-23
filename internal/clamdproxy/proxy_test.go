@@ -253,21 +253,35 @@ func TestProxyCommandFilter(t *testing.T) {
 	}
 }
 
+// writeTokens replaces the token file atomically, like the kubelet updates a
+// mounted secret: os.WriteFile truncates first, and a proxy reading at that
+// moment would see no token. The modification time is moved by age, so that
+// the change is noticed within the same second.
+func writeTokens(t *testing.T, path, content string, age time.Duration) {
+	t.Helper()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(tmp, time.Now(), time.Now().Add(age)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A new token file is picked up; the old token stops working.
 func TestProxyTokenRotation(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
-	if err := os.WriteFile(e.tokenFile, []byte("secret-1\nsecret-2\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	os.Chtimes(e.tokenFile, time.Now(), time.Now().Add(time.Second))
+	writeTokens(t, e.tokenFile, "secret-1\nsecret-2\n", time.Second)
 	for _, tok := range []string{"secret-1", "secret-2"} {
 		if _, err := e.client(t, tok).Version(ctx); err != nil {
 			t.Errorf("%s during rotation: %v", tok, err)
 		}
 	}
-	os.WriteFile(e.tokenFile, []byte("secret-2\n"), 0o600)
-	os.Chtimes(e.tokenFile, time.Now(), time.Now().Add(2*time.Second))
+	writeTokens(t, e.tokenFile, "secret-2\n", 2*time.Second)
 	if _, err := e.client(t, "secret-1").Version(ctx); err == nil {
 		t.Error("old token still accepted")
 	}
