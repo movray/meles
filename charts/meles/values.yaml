@@ -197,6 +197,34 @@ selftest:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {memory: 256Mi}
 
+# Scans the image of every pod in the cluster and writes MalwareReports
+# (meles.io/v1alpha1), one per workload and container, in the pod's
+# namespace:  kubectl get malwarereports -A
+# The CRD is in the chart's crds/ directory: helm installs it once and never
+# deletes it; apply it again after upgrades:
+#   kubectl apply -f charts/meles/crds/
+operator:
+  enabled: false
+  # nodes: the architectures of the cluster's nodes; all; or a list such as
+  # linux/amd64,linux/arm64.
+  platform: nodes
+  # Pods reconciled (and images scanned) in parallel.
+  workers: 2
+  # Parallel clamd sessions per scan.
+  concurrency: 4
+  # Wait before retrying an image whose scan failed.
+  retryAfter: 1h
+  # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
+  extraEnv: []
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    # The informer cache holds all pods and jobs of the cluster, plus up to
+    # (workers x (concurrency+1)) x 4 MiB of file buffers and the layer cache.
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 networkPolicy:
   # clamd has no authentication. Only pods of this release may connect to
   # it, only clamd may fetch from the mirror. Egress is not restricted.

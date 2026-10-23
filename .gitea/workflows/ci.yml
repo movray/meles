@@ -25,6 +25,8 @@ jobs:
           git checkout -q FETCH_HEAD
       - run: make lint
       - run: make test
+      # Operator tests against a real API server and etcd (downloaded binaries).
+      - run: make test-envtest
 
   # Against the real clamd of the testcluster, through meles clamd-proxy.
   # The runner's network policy allows exactly this connection.

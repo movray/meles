@@ -152,13 +152,14 @@ API: `GET/POST /api/scans`, `GET/PUT/DELETE /api/scans/{id}`,
 
 ## Kubernetes
 
-The Helm chart in `charts/meles` installs three roles:
+The Helm chart in `charts/meles` installs these roles:
 
 | Component | Purpose |
 |---|---|
 | `<release>-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly). |
 | `<release>-clamd` | clamd workers; get signatures from the mirror via freshclam `PrivateMirror`. |
 | `<release>-server` | web UI, scheduler, run history (SQLite on a PVC). |
+| `<release>-operator` | scans the image of every pod in the cluster, writes MalwareReports (off by default, see below). |
 
 Plus a suspended CronJob `<release>-selftest` to check the chain on demand.
 Each role can be turned off; with `clamd.enabled=false` set `clamd.address`
@@ -190,6 +191,39 @@ Important values (see `charts/meles/values.yaml`):
 | `networkPolicy.enabled` | `true` | clamd only for pods of the release, the mirror only for clamd |
 | `networkPolicy.clamdExtraFrom` | `[]` | further clients of clamd, e.g. CI runners in other namespaces |
 | `networkPolicy.serverFrom` | `[]` | restrict access to the UI, e.g. to the ingress controller |
+| `operator.enabled` | `false` | run the operator |
+| `operator.platform` | `nodes` | `nodes` (architectures of the cluster's nodes), `all`, or a list |
+
+### Operator
+
+With `operator.enabled=true`, meles watches all pods of the cluster and scans
+the image every container (including init containers) runs, by digest. The
+result is a `MalwareReport` (`meles.io/v1alpha1`) in the pod's namespace, one
+per workload and container, owned by the workload and deleted with it:
+
+```
+$ kubectl get malwarereports -A
+NAMESPACE   NAME                         WORKLOAD     CONTAINER   IMAGE                     STATUS     FINDINGS
+shop        replicaset-web-5d8f7c-app    ReplicaSet   app         docker.io/acme/web        Clean      0
+tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclone/rclone   Infected   1
+```
+
+- A workload is the pod's controller (ReplicaSet, StatefulSet, DaemonSet,
+  Job), the CronJob of a Job, or the pod itself.
+- Every digest is scanned once; other workloads with the same image get a
+  copy of the result.
+- `Status` is `Clean`, `Infected`, `Incomplete` (files skipped) or `Error`
+  (not scanned, e.g. a private registry or an image imported into the node).
+  `Error` and `Incomplete` are never clean.
+- Images of private registries cannot be pulled yet (planned: pull secrets of
+  the pod), they are reported as `Error`.
+
+The CRD is in `charts/meles/crds/`. Helm installs it with the chart but never
+updates or deletes it; after an upgrade apply it again:
+
+```sh
+kubectl apply -f charts/meles/crds/
+```
 
 ### Login for the web UI
 
@@ -257,6 +291,8 @@ twice that during a reload.
 ```sh
 make test               # unit tests (race detector)
 make test-integration   # against a real clamd (CLAMD=unix:///run/clamav/clamd.ctl)
+make test-envtest       # operator tests against a real API server and etcd (downloads them)
+make generate           # deepcopy functions and the CRD after changing api/v1alpha1
 make lint
 make image              # build and push the image with ko, no Docker daemon
 ```

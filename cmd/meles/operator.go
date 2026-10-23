@@ -1,0 +1,119 @@
+package main
+
+import (
+	"fmt"
+	"log/slog"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/go-logr/logr"
+	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"git.itknecht.de/sugras/meles/internal/operator"
+	"git.itknecht.de/sugras/meles/internal/scan"
+	"git.itknecht.de/sugras/meles/internal/source"
+)
+
+func newOperatorCmd() *cobra.Command {
+	var (
+		sf           scanFlags
+		platforms    string
+		workers      int
+		scanTimeout  time.Duration
+		retryAfter   time.Duration
+		healthListen string
+		leaderElect  bool
+		leaderNS     string
+		cacheSize    int
+		cachePaths   int
+	)
+	cmd := &cobra.Command{
+		Use:   "operator",
+		Short: "Scan the images of all pods in the cluster and write MalwareReports",
+		Long: `operator watches the pods of the cluster and scans the image every container
+runs, by digest. The result is written as a MalwareReport (meles.io/v1alpha1)
+in the pod's namespace, one per workload and container, owned by the workload.
+Every digest is scanned once; other workloads with the same image get a copy.
+
+It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if platforms != operator.PlatformsNodes {
+				if _, err := source.ParsePlatforms(platforms); err != nil {
+					return fmt.Errorf("--platform: %w", err)
+				}
+			}
+			c := scan.NewCache(cacheSize)
+			c.MaxPaths = cachePaths
+			sc, err := sf.scanner(c)
+			if err != nil {
+				return err
+			}
+			log := slog.Default()
+			ctrl.SetLogger(logr.FromSlogHandler(log.Handler()))
+
+			cfg, err := ctrl.GetConfig()
+			if err != nil {
+				return fmt.Errorf("kubernetes config: %w", err)
+			}
+			scheme := runtime.NewScheme()
+			if err := clientgoscheme.AddToScheme(scheme); err != nil {
+				return err
+			}
+			if err := v1alpha1.AddToScheme(scheme); err != nil {
+				return err
+			}
+			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+				Scheme:                  scheme,
+				Metrics:                 metricsserver.Options{BindAddress: "0"},
+				HealthProbeBindAddress:  healthListen,
+				LeaderElection:          leaderElect,
+				LeaderElectionID:        "meles-operator.meles.io",
+				LeaderElectionNamespace: leaderNS,
+				// The cache holds every pod of the cluster.
+				Cache: cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
+			})
+			if err != nil {
+				return fmt.Errorf("create manager: %w", err)
+			}
+			r := &operator.Reconciler{
+				Client: mgr.GetClient(), Scanner: sc, Version: version,
+				Platforms: platforms, Workers: workers,
+				ScanTimeout: scanTimeout, RetryAfter: retryAfter, Logger: log,
+			}
+			if err := r.SetupWithManager(mgr); err != nil {
+				return fmt.Errorf("set up controller: %w", err)
+			}
+			if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
+				return err
+			}
+			if err := mgr.AddReadyzCheck("ping", healthz.Ping); err != nil {
+				return err
+			}
+
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "version", version)
+			return mgr.Start(ctx)
+		},
+	}
+	sf.register(cmd.Flags())
+	cmd.Flags().StringVar(&platforms, "platform", operator.PlatformsNodes, "platforms to scan: nodes (architectures of the cluster's nodes), all, or a list such as linux/amd64,linux/arm64")
+	cmd.Flags().IntVar(&workers, "workers", 2, "pods reconciled (and images scanned) in parallel; each scan uses --concurrency clamd sessions")
+	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")
+	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed")
+	cmd.Flags().StringVar(&healthListen, "health-listen", ":8081", "listen address of /healthz and /readyz")
+	cmd.Flags().BoolVar(&leaderElect, "leader-elect", true, "use leader election, so that only one replica scans")
+	cmd.Flags().StringVar(&leaderNS, "leader-election-namespace", "", "namespace of the leader election lease; default: the pod's namespace")
+	cmd.Flags().IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory")
+	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
+	return cmd
+}
