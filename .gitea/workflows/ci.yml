@@ -60,8 +60,9 @@ jobs:
           for i in $(seq 120); do grep -q eicar-opaque /tmp/registry.log && break; sleep 1; done
           fail=0
           check() {
-            /tmp/meles image --insecure-registry --format json "127.0.0.1:5055/selftest/$1:latest" > /dev/null
-            got=$?
+            # The job shell runs with -e: catch the expected non-zero codes.
+            got=0
+            /tmp/meles image --insecure-registry --format json "127.0.0.1:5055/selftest/$1:latest" > /dev/null || got=$?
             echo "$1: exit $got, want $2"
             [ "$got" = "$2" ] || fail=1
           }
