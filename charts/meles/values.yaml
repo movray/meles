@@ -15,7 +15,11 @@ imagePullSecrets: []
 # Shared by the server, the selftest and the clamd configuration.
 scan:
   # Larger files are skipped and reported. clamd's StreamMaxLength and
-  # MaxFileSize are set to the same value.
+  # MaxFileSize are set to the same value, MaxScanSize to at least it.
+  # At most 2047M: ClamAV cannot scan larger files. Files above 4 MiB are
+  # streamed to clamd, so a higher value costs no memory in meles; clamd
+  # keeps each stream in a temporary file in the container while it scans
+  # it (up to maxThreads x maxFileSize of ephemeral storage).
   maxFileSize: 25M
 
 server:
@@ -42,7 +46,7 @@ server:
     port: 80
   resources:
     requests: {cpu: 50m, memory: 128Mi}
-    # Buffers up to concurrency x maxFileSize per scan plus the layer cache.
+    # Buffers up to (concurrency+1) x 4 MiB per scan plus the layer cache.
     limits: {memory: 1Gi}
   # meles has no login of its own. oauth2-proxy runs as a sidecar in front
   # of the UI: only users logged in with the OIDC provider (Keycloak,
@@ -105,6 +109,7 @@ clamd:
     tag: "1.4"
     pullPolicy: IfNotPresent
   replicas: 1
+  # Raised to scan.maxFileSize if lower.
   maxScanSize: 100M
   maxThreads: 12
   # clamd has no authentication of its own. With auth enabled, clamd listens

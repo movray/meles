@@ -37,6 +37,9 @@ func fakeClamd(t *testing.T) string {
 	return "unix://" + sock
 }
 
+// streamMaxLength is the fake's StreamMaxLength.
+const streamMaxLength = 4 << 20
+
 func serveFake(conn net.Conn) {
 	defer conn.Close()
 	r := bufio.NewReader(conn)
@@ -51,12 +54,20 @@ func serveFake(conn net.Conn) {
 			fmt.Fprint(conn, "ClamAV 1.4.3/28159/Tue Oct 20 08:24:12 2026\x00")
 			return
 		case "zIDSESSION":
+		case "zPING":
+			id++
+			fmt.Fprintf(conn, "%d: PONG\x00", id)
 		case "zEND":
 			return
 		case "zINSTREAM":
 			id++
 			var data bytes.Buffer
 			for {
+				if data.Len() > streamMaxLength {
+					// Like clamd: answer, then close the connection.
+					fmt.Fprintf(conn, "%d: INSTREAM size limit exceeded. ERROR\x00", id)
+					return
+				}
 				var size uint32
 				if err := binary.Read(r, binary.BigEndian, &size); err != nil {
 					return
@@ -114,6 +125,16 @@ func TestSession(t *testing.T) {
 			t.Errorf("%s: signature = %q, want %q", tt.name, got, tt.want)
 		}
 	}
+
+	// A stream above clamd's StreamMaxLength must fail with a clear error.
+	tooLong := io.MultiReader(strings.NewReader(strings.Repeat("a", streamMaxLength+chunkSize)), strings.NewReader("EVIL"))
+	if _, err := s.Scan(ctx, tooLong); err == nil || !strings.Contains(err.Error(), "StreamMaxLength") {
+		t.Fatalf("stream above StreamMaxLength: err = %v", err)
+	}
+	if s, err = c.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 
 	if _, err := s.Scan(ctx, strings.NewReader("ERROR")); err == nil {
 		t.Fatal("error reply: want error")
@@ -210,6 +231,17 @@ func TestSessionReconnectsAfterIdleTimeout(t *testing.T) {
 	time.Sleep(400 * time.Millisecond) // e.g. the next layer is still downloading
 	if _, err := sess.Scan(ctx, strings.NewReader("file 2")); err != nil {
 		t.Errorf("scan after idle timeout: %v", err)
+	}
+	// A large file is streamed from the layer and cannot be resent: the
+	// session is checked before the stream starts.
+	time.Sleep(400 * time.Millisecond)
+	stream := io.MultiReader(strings.NewReader(strings.Repeat("a", 3*chunkSize)), strings.NewReader("EVIL"))
+	sig, err := sess.Scan(ctx, stream)
+	if err != nil {
+		t.Fatalf("stream after idle timeout: %v", err)
+	}
+	if sig != "Fake.Evil" {
+		t.Errorf("stream signature = %q, want Fake.Evil", sig)
 	}
 }
 

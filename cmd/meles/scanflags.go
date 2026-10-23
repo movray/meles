@@ -36,7 +36,7 @@ func (f *scanFlags) register(fs *pflag.FlagSet) {
 	fs.StringVar(&f.clamdToken, "clamd-token", "", "token for meles clamd-proxy; prefer MELES_CLAMD_TOKEN, a flag is visible in the process list")
 	fs.StringVar(&f.clamdCA, "clamd-ca", "", "CA certificate (PEM) of meles clamd-proxy; default: system roots")
 	fs.IntVar(&f.concurrency, "concurrency", 4, "parallel clamd sessions per scan")
-	fs.Var(&f.maxFileSize, "max-file-size", "skip and report files larger than this; keep it at or below clamd's StreamMaxLength")
+	fs.Var(&f.maxFileSize, "max-file-size", "skip and report files larger than this, at most 2047M (ClamAV's limit); keep it at or below clamd's StreamMaxLength and MaxFileSize")
 	fs.Var(&f.maxLayerSize, "max-layer-size", "fail on layers larger than this (uncompressed)")
 	fs.IntVar(&f.maxFiles, "max-files", 500000, "fail on layers with more entries than this")
 	fs.BoolVar(&f.insecure, "insecure-registry", false, "allow plain HTTP registries")
@@ -62,9 +62,11 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 	if f.concurrency < 1 {
 		return nil, fmt.Errorf("--concurrency must be at least 1")
 	}
-	// Files are held in memory while they are scanned.
 	if f.maxFileSize <= 0 {
 		return nil, fmt.Errorf("--max-file-size must be greater than 0")
+	}
+	if f.maxFileSize > clamd.MaxFileSize {
+		return nil, fmt.Errorf("--max-file-size %s: ClamAV cannot scan files larger than 2G minus 1 byte, use at most 2047M", f.maxFileSize.String())
 	}
 	return &scan.Scanner{
 		Engine:      c,

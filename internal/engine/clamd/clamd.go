@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,6 +29,10 @@ import (
 // chunkSize is the INSTREAM chunk size. clamd accepts any size up to its
 // StreamMaxLength; 64 KiB keeps memory per session small.
 const chunkSize = 64 << 10
+
+// MaxFileSize is the largest file ClamAV can scan ("technical design
+// limitations", see clamd.conf). StreamMaxLength must be at least as large.
+const MaxFileSize = 1<<31 - 1
 
 // Authentication with meles clamd-proxy.
 const (
@@ -40,7 +45,9 @@ const (
 type Client struct {
 	network, address string
 	tls              bool
-	// Timeout bounds dialing and each single scan.
+	// Timeout bounds each step of a scan: sending a chunk and waiting for the
+	// verdict. A stalled clamd fails the scan, while a large file may take
+	// longer as a whole.
 	Timeout time.Duration
 	// TLSConfig is used for tls:// addresses. Nil means the system roots.
 	TLSConfig *tls.Config
@@ -258,13 +265,29 @@ func (s *session) connect(ctx context.Context) error {
 // Scan scans r. clamd closes sessions that were idle for longer than its
 // IdleTimeout, e.g. while meles downloads a large layer. On a connection
 // error Scan therefore retries once on a new session if r is an io.Seeker.
+// Other readers cannot be sent twice: the session is checked with PING and
+// reopened if needed before the stream starts.
 func (s *session) Scan(ctx context.Context, r io.Reader) (string, error) {
 	if s.broken {
 		return "", errBroken
 	}
-	sig, err := s.scan(ctx, r)
 	var ce *connError
-	if seeker, ok := r.(io.Seeker); ok && errors.As(err, &ce) && ctx.Err() == nil {
+	seeker, seekable := r.(io.Seeker)
+	if !seekable {
+		if perr := s.ping(); perr != nil {
+			if !errors.As(perr, &ce) || ctx.Err() != nil {
+				s.broken = true
+				return "", perr
+			}
+			s.conn.Close()
+			if err := s.connect(ctx); err != nil {
+				s.broken = true
+				return "", fmt.Errorf("reconnect after %v: %w", perr, err)
+			}
+		}
+	}
+	sig, err := s.scan(ctx, r)
+	if seekable && errors.As(err, &ce) && ctx.Err() == nil {
 		s.conn.Close()
 		if _, serr := seeker.Seek(0, io.SeekStart); serr != nil {
 			err = fmt.Errorf("rewind input: %w", serr)
@@ -281,15 +304,49 @@ func (s *session) Scan(ctx context.Context, r io.Reader) (string, error) {
 	return sig, err
 }
 
-func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
-	if dl, ok := ctx.Deadline(); ok {
-		s.conn.SetDeadline(dl)
-	} else {
-		s.conn.SetDeadline(time.Now().Add(s.client.Timeout))
+// ping checks that clamd still answers on the session.
+func (s *session) ping() error {
+	s.conn.SetDeadline(time.Now().Add(30 * time.Second))
+	defer s.conn.SetDeadline(time.Time{})
+	if _, err := s.conn.Write([]byte("zPING\x00")); err != nil {
+		return &connError{fmt.Errorf("send PING: %w", err)}
 	}
-	stop := context.AfterFunc(ctx, func() { s.conn.SetDeadline(time.Now()) })
+	resp, err := s.r.ReadString(0)
+	if err != nil {
+		return &connError{fmt.Errorf("read PING reply: %w", err)}
+	}
+	if _, msg, _ := strings.Cut(strings.TrimSuffix(resp, "\x00"), ": "); msg != "PONG" {
+		return fmt.Errorf("clamd: unexpected PING reply %q", resp)
+	}
+	return nil
+}
+
+func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
+	// The deadline is renewed for every chunk. Once ctx is done it stays in
+	// the past, so that blocked reads and writes return.
+	var mu sync.Mutex
+	cancelled := false
+	extend := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if cancelled {
+			return
+		}
+		dl := time.Now().Add(s.client.Timeout)
+		if d, ok := ctx.Deadline(); ok && d.Before(dl) {
+			dl = d
+		}
+		s.conn.SetDeadline(dl)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		cancelled = true
+		s.conn.SetDeadline(time.Now())
+	})
 	defer stop()
 
+	extend()
 	if _, err := s.conn.Write([]byte("zINSTREAM\x00")); err != nil {
 		return "", &connError{fmt.Errorf("send INSTREAM: %w", err)}
 	}
@@ -297,9 +354,10 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 	for {
 		n, err := r.Read(buf[4:])
 		if n > 0 {
+			extend()
 			binary.BigEndian.PutUint32(buf, uint32(n))
 			if _, werr := s.conn.Write(buf[:4+n]); werr != nil {
-				return "", &connError{fmt.Errorf("send chunk: %w", werr)}
+				return "", s.writeFailed(fmt.Errorf("send chunk: %w", werr))
 			}
 		}
 		if errors.Is(err, io.EOF) {
@@ -309,8 +367,9 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 			return "", fmt.Errorf("read input: %w", err)
 		}
 	}
+	extend()
 	if _, err := s.conn.Write([]byte{0, 0, 0, 0}); err != nil {
-		return "", &connError{fmt.Errorf("send end of stream: %w", err)}
+		return "", s.writeFailed(fmt.Errorf("send end of stream: %w", err))
 	}
 
 	resp, err := s.r.ReadString(0)
@@ -321,6 +380,21 @@ func (s *session) scan(ctx context.Context, r io.Reader) (string, error) {
 		return "", &connError{fmt.Errorf("read reply: %w", err)}
 	}
 	return ParseReply(strings.TrimSuffix(resp, "\x00"))
+}
+
+// writeFailed explains a failed write during INSTREAM. clamd answers
+// "INSTREAM size limit exceeded" and closes the connection once a stream
+// exceeds its StreamMaxLength; that reply says more than the reset.
+func (s *session) writeFailed(err error) error {
+	s.conn.SetReadDeadline(time.Now().Add(time.Second))
+	resp, rerr := s.r.ReadString(0)
+	if rerr != nil {
+		return &connError{err}
+	}
+	if _, perr := ParseReply(strings.TrimSuffix(resp, "\x00")); perr != nil {
+		return perr
+	}
+	return &connError{err}
 }
 
 // ParseReply interprets a session reply: "<id>: stream: OK",
@@ -335,6 +409,8 @@ func ParseReply(resp string) (string, error) {
 		return "", nil
 	case strings.HasPrefix(msg, "stream: ") && strings.HasSuffix(msg, " FOUND"):
 		return strings.TrimSuffix(strings.TrimPrefix(msg, "stream: "), " FOUND"), nil
+	case strings.Contains(msg, "size limit exceeded"):
+		return "", fmt.Errorf("clamd: %s (its StreamMaxLength is below --max-file-size)", msg)
 	default:
 		return "", fmt.Errorf("clamd: %s", msg)
 	}

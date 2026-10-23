@@ -119,3 +119,15 @@ affinity:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end }}
+
+{{/* Bytes of a size such as 25M, 2047M or 512K (as meles parses it). */}}
+{{- define "meles.bytes" -}}
+{{- $v := upper (toString .) | trimSuffix "B" | trimSuffix "I" -}}
+{{- $mult := 1 -}}
+{{- if hasSuffix "K" $v }}{{ $mult = 1024 }}{{ $v = trimSuffix "K" $v }}
+{{- else if hasSuffix "M" $v }}{{ $mult = 1048576 }}{{ $v = trimSuffix "M" $v }}
+{{- else if hasSuffix "G" $v }}{{ $mult = 1073741824 }}{{ $v = trimSuffix "G" $v }}
+{{- end -}}
+{{- if not (regexMatch "^[0-9]+$" $v) }}{{ fail (printf "invalid size %q (examples: 512K, 25M, 2047M)" (toString .)) }}{{ end -}}
+{{- mul (atoi $v) $mult -}}
+{{- end }}

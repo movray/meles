@@ -64,10 +64,22 @@ type hit struct {
 	path, signature string
 }
 
+// bufferLimit is the largest file that is read into memory and queued, so
+// that small files are scanned in parallel while the layer is read on.
+// Larger files are streamed from the layer straight to one engine session;
+// reading the layer waits meanwhile. Memory per scan therefore stays at
+// about (Concurrency+1) x bufferLimit, whatever the maximum file size.
+const bufferLimit = 4 << 20
+
 type scanJob struct {
 	res  *layerResult
 	path string
+	size int64
 	data []byte
+	// stream is set instead of data for files above bufferLimit. The worker
+	// reports on done once it stopped reading from it.
+	stream io.Reader
+	done   chan error
 }
 
 // Scan scans the platforms of ref selected by platforms. Progress is
@@ -174,25 +186,12 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 				}
 			}()
 			for j := range jobs {
-				if sess == nil {
-					var err error
-					if sess, err = s.Engine.Open(gctx); err != nil {
-						return err
-					}
+				err := s.scanFile(gctx, &sess, j)
+				if j.done != nil {
+					j.done <- err
 				}
-				sig, err := sess.Scan(gctx, bytes.NewReader(j.data))
 				if err != nil {
-					return fmt.Errorf("scan %s: %w", j.path, err)
-				}
-				switch {
-				case strings.HasPrefix(sig, limitSignaturePrefix):
-					j.res.mu.Lock()
-					j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: int64(len(j.data)), Reason: "engine limit exceeded (" + sig + ")"})
-					j.res.mu.Unlock()
-				case sig != "":
-					j.res.mu.Lock()
-					j.res.hits = append(j.res.hits, hit{j.path, sig})
-					j.res.mu.Unlock()
+					return err
 				}
 			}
 			return nil
@@ -214,8 +213,38 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 	return rep, nil
 }
 
+// scanFile scans one queued file on *sess, opening the session first if
+// needed, and records the result in the file's layer.
+func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob) error {
+	if *sess == nil {
+		var err error
+		if *sess, err = s.Engine.Open(ctx); err != nil {
+			return err
+		}
+	}
+	r := j.stream
+	if r == nil {
+		r = bytes.NewReader(j.data)
+	}
+	sig, err := (*sess).Scan(ctx, r)
+	if err != nil {
+		return fmt.Errorf("scan %s: %w", j.path, err)
+	}
+	switch {
+	case strings.HasPrefix(sig, limitSignaturePrefix):
+		j.res.mu.Lock()
+		j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: j.size, Reason: "engine limit exceeded (" + sig + ")"})
+		j.res.mu.Unlock()
+	case sig != "":
+		j.res.mu.Lock()
+		j.res.hits = append(j.res.hits, hit{j.path, sig})
+		j.res.mu.Unlock()
+	}
+	return nil
+}
+
 // walkLayer reads layer l and queues its files. It returns once all files
-// are queued, not when they are scanned. It reads the layer to the end, so
+// are queued, not when they are scanned (except streamed large files). It reads the layer to the end, so
 // that the blob digest is verified, and checks the uncompressed content
 // against diffID from the image config.
 func (s *Scanner) walkLayer(ctx context.Context, l v1.Layer, diffID v1.Hash, res *layerResult, jobs chan<- scanJob) error {
@@ -230,16 +259,27 @@ func (s *Scanner) walkLayer(ctx context.Context, l v1.Layer, diffID v1.Hash, res
 	h := sha256.New()
 	r := io.TeeReader(rc, h)
 	meta, err := extract.Walk(r, s.Limits, func(f extract.File) error {
-		data, err := io.ReadAll(f.Content)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", f.Path, err)
+		job := scanJob{res: res, path: f.Path, size: f.Size}
+		if f.Size > bufferLimit {
+			job.stream, job.done = f.Content, make(chan error, 1)
+		} else {
+			data, err := io.ReadAll(f.Content)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", f.Path, err)
+			}
+			job.data, job.size = data, int64(len(data))
 		}
 		select {
-		case jobs <- scanJob{res: res, path: f.Path, data: data}:
-			return nil
+		case jobs <- job:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+		if job.done == nil {
+			return nil
+		}
+		// The worker reads from the layer: wait until it is done. It always
+		// answers, and quickly once ctx is cancelled.
+		return <-job.done
 	})
 	if err != nil {
 		return err
