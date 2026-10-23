@@ -4,7 +4,7 @@ description: Malware scanner for container images - web UI with scheduled scans,
 type: application
 version: 0.3.1
 # Tag of the meles image; override with image.tag.
-appVersion: "25f292b"
+appVersion: "280d173"
 home: https://git.itknecht.de/sugras/meles
 sources:
   - https://git.itknecht.de/sugras/meles
