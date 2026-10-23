@@ -5,8 +5,8 @@ on:
   pull_request:
 
 # No third-party actions: the instance requires sign-in to view (and clone)
-# anything, and act_runner clones actions anonymously. The job runs in the
-# Go image and fetches the code with the job token instead.
+# anything, and act_runner clones actions anonymously. The jobs run in the
+# Go image and fetch the code with the job token instead.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -25,3 +25,49 @@ jobs:
           git checkout -q FETCH_HEAD
       - run: make lint
       - run: make test
+
+  # Against the real clamd of the testcluster, through meles clamd-proxy.
+  # The runner's network policy allows exactly this connection.
+  selftest:
+    needs: test
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
+    env:
+      MELES_CLAMD: tls://meles-clamd.meles.svc.cluster.local:3310
+      MELES_CLAMD_TOKEN: ${{ secrets.MELES_CLAMD_TOKEN }}
+      MELES_CLAMD_CA: /tmp/clamd-ca.crt
+    steps:
+      - name: checkout
+        env:
+          TOKEN: ${{ gitea.token }}
+          REPO: ${{ gitea.server_url }}/${{ gitea.repository }}.git
+          SHA: ${{ gitea.sha }}
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token $TOKEN" fetch -q --depth=1 "$REPO" "$SHA"
+          git checkout -q FETCH_HEAD
+      - name: clamd CA
+        env:
+          CA: ${{ secrets.MELES_CLAMD_CA }}
+        run: printf '%s\n' "$CA" > "$MELES_CLAMD_CA"
+      - run: go build -o /tmp/meles ./cmd/meles
+      - run: /tmp/meles selftest
+      - name: exit codes (infected images fail the pipeline, a clean one passes)
+        shell: bash
+        run: |
+          go run ./hack/testregistry -listen 127.0.0.1:5055 > /tmp/registry.log &
+          for i in $(seq 120); do grep -q eicar-opaque /tmp/registry.log && break; sleep 1; done
+          fail=0
+          check() {
+            /tmp/meles image --insecure-registry --format json "127.0.0.1:5055/selftest/$1:latest" > /dev/null
+            got=$?
+            echo "$1: exit $got, want $2"
+            [ "$got" = "$2" ] || fail=1
+          }
+          check clean 0
+          check eicar-present 1
+          check eicar-whiteout 1
+          check eicar-opaque 1
+          exit $fail
+      - run: make test-integration CLAMD="$MELES_CLAMD"

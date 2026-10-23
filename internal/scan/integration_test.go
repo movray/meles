@@ -29,6 +29,11 @@ func TestRealClamdStreamsLargeFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Token = os.Getenv("MELES_CLAMD_TOKEN")
+	if ca := os.Getenv("MELES_CLAMD_CA"); ca != "" {
+		if c.TLSConfig, err = clamd.LoadCA(ca); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	// clamd detects EICAR by the hash of the whole file, so it goes into an
 	// archive next to padding instead of being appended to it.

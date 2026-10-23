@@ -1,11 +1,8 @@
 package main
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"log/slog"
-	"os"
 	"strconv"
 	"strings"
 
@@ -49,15 +46,9 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 	}
 	c.Token = f.clamdToken
 	if f.clamdCA != "" {
-		pem, err := os.ReadFile(f.clamdCA)
-		if err != nil {
+		if c.TLSConfig, err = clamd.LoadCA(f.clamdCA); err != nil {
 			return nil, fmt.Errorf("--clamd-ca: %w", err)
 		}
-		roots := x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("--clamd-ca %s: no PEM certificate", f.clamdCA)
-		}
-		c.TLSConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	}
 	if f.concurrency < 1 {
 		return nil, fmt.Errorf("--concurrency must be at least 1")

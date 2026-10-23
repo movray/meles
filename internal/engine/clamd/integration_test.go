@@ -11,6 +11,7 @@ import (
 
 // TestRealClamd needs a running clamd, e.g.
 // MELES_TEST_CLAMD=unix:///run/clamav/clamd.ctl go test -tags integration ./...
+// For meles clamd-proxy (tls://) set MELES_CLAMD_TOKEN and MELES_CLAMD_CA.
 func TestRealClamd(t *testing.T) {
 	addr := os.Getenv("MELES_TEST_CLAMD")
 	if addr == "" {
@@ -19,6 +20,12 @@ func TestRealClamd(t *testing.T) {
 	c, err := New(addr)
 	if err != nil {
 		t.Fatal(err)
+	}
+	c.Token = os.Getenv("MELES_CLAMD_TOKEN")
+	if ca := os.Getenv("MELES_CLAMD_CA"); ca != "" {
+		if c.TLSConfig, err = LoadCA(ca); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ctx := context.Background()
 	v, err := c.Version(ctx)

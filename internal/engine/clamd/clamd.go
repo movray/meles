@@ -12,12 +12,14 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -85,6 +87,20 @@ func New(addr string) (*Client, error) {
 		return nil, fmt.Errorf("clamd address %q: missing path or host", addr)
 	}
 	return c, nil
+}
+
+// LoadCA returns a TLS configuration that trusts only the CA certificates
+// (PEM) in file, e.g. the CA of meles clamd-proxy.
+func LoadCA(file string) (*tls.Config, error) {
+	pem, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("read clamd CA: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("clamd CA %s: no PEM certificate", file)
+	}
+	return &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, nil
 }
 
 func (c *Client) dial(ctx context.Context) (net.Conn, error) {
