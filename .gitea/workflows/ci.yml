@@ -4,15 +4,24 @@ on:
     branches: [main]
   pull_request:
 
-# Actions come from mirrors on this Gitea instance (DEFAULT_ACTIONS_URL=self),
-# pinned to commit SHAs.
+# No third-party actions: the instance requires sign-in to view (and clone)
+# anything, and act_runner clones actions anonymously. The job runs in the
+# Go image and fetches the code with the job token instead.
 jobs:
   test:
     runs-on: ubuntu-latest
+    container:
+      # Keep the Go version in line with go.mod.
+      image: docker.io/library/golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
     steps:
-      - uses: sugras/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: sugras/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
+      - name: checkout
+        env:
+          TOKEN: ${{ gitea.token }}
+          REPO: ${{ gitea.server_url }}/${{ gitea.repository }}.git
+          SHA: ${{ gitea.sha }}
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token $TOKEN" fetch -q --depth=1 "$REPO" "$SHA"
+          git checkout -q FETCH_HEAD
       - run: make lint
       - run: make test
