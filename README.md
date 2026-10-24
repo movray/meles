@@ -361,6 +361,32 @@ updates or deletes it; after an upgrade apply it again:
 kubectl apply -f charts/meles/crds/
 ```
 
+### Harbor
+
+With `harborAdapter.enabled=true`, meles runs as a
+[pluggable scanner](https://github.com/goharbor/pluggable-scanner-spec) for
+Harbor (`meles harbor-adapter`): Harbor sends every pushed image to meles
+and shows the result, before the image runs anywhere. Register it under
+**Administration → Interrogation Services**:
+
+- Endpoint: `http://<release>-harbor-adapter.<namespace>:8080`
+- Authorization: `Bearer`, token from
+  `kubectl -n <namespace> get secret <release>-harbor-adapter-token -o jsonpath='{.data.token}' | base64 -d`
+
+Harbor knows vulnerability and SBOM reports only, so meles reports a finding
+as an entry of severity `Critical` (the signature as ID, the file path as
+package; layer, status and sha256 under `vendor_attributes`) and a file that
+was not scanned as an entry of `harborAdapter.skippedSeverity` (`Critical` by
+default). With the project setting *Prevent vulnerable images from running*
+at `Critical`, Harbor refuses to hand out infected images.
+
+A Harbor project uses one scanner. To keep the CVE scan, chain Harbor's
+Trivy adapter with `harborAdapter.upstream.url` (e.g.
+`http://harbor-trivy.harbor:8080`): every scan goes to both, the report
+contains the CVEs and the malware findings, and SBOM requests are passed
+through. Ignore rules go into `harborAdapter.ignoreRules`; Harbor's CVE
+allowlist works on the signature IDs as well.
+
 ### Login for the web UI
 
 meles has no login of its own. Without one, anyone who reaches the UI can

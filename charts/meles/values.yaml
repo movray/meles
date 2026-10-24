@@ -275,6 +275,43 @@ operator:
   tolerations: []
   affinity: {}
 
+# Harbor's pluggable scanner adapter: Harbor scans every pushed image with
+# meles. Register it in Harbor (Administration, Interrogation Services) with
+# the URL http://<release>-harbor-adapter.<namespace>:8080, Authorization
+# "Bearer" and the token from the secret <release>-harbor-adapter-token.
+harborAdapter:
+  enabled: false
+  # Images scanned in parallel, and clamd sessions per scan.
+  workers: 2
+  concurrency: 4
+  auth:
+    # Secret with the key "token"; empty: generated and kept.
+    existingSecret: ""
+  # Harbor severity of files that were not scanned. Critical (default):
+  # an unscanned file does not pass a "prevent vulnerable images" gate.
+  skippedSeverity: Critical
+  # A Harbor project uses one scanner. Chain another adapter to keep its
+  # CVE scan, e.g. Harbor's Trivy: http://harbor-trivy.harbor:8080. Reports
+  # then contain both; SBOM requests are passed through.
+  upstream:
+    url: ""
+    # Secret with the key "token", if the upstream wants a bearer token.
+    tokenSecret: ""
+  # Ignore rules (format of meles image --ignorefile); ignored entries are
+  # left out of Harbor's reports.
+  ignoreRules: []
+  service:
+    port: 8080
+  extraEnv: []
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    # (workers x (concurrency+1)) x 4 MiB of file buffers plus the layer
+    # cache.
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 networkPolicy:
   # clamd has no authentication. Only pods of this release may connect to
   # it, only clamd may fetch from the mirror. Egress is not restricted.

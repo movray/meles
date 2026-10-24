@@ -93,6 +93,11 @@ func WithKeychain(kc authn.Keychain) Option {
 	return func(o *source.Options) { o.Keychain = kc }
 }
 
+// WithInsecure allows a plain HTTP registry for this scan.
+func WithInsecure() Option {
+	return func(o *source.Options) { o.Insecure = true }
+}
+
 // Scan scans the platforms of ref selected by platforms. Progress is
 // optional. An error means the image was not fully scanned; it must never be
 // treated as clean.

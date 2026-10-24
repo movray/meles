@@ -1,0 +1,151 @@
+{{- if .Values.harborAdapter.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+{{- $v := .Values.harborAdapter }}
+{{- $tokenSecret := $v.auth.existingSecret | default (printf "%s-harbor-adapter-token" $fullname) }}
+{{- if not $v.auth.existingSecret }}
+{{- $token := randAlphaNum 48 | b64enc }}
+{{- with lookup "v1" "Secret" .Release.Namespace $tokenSecret }}
+{{- with .data }}{{ with .token }}{{ $token = . }}{{ end }}{{ end }}
+{{- end }}
+# Bearer token Harbor sends to the adapter (Interrogation Services, scanner
+# registration, Authorization "Bearer"); generated once and kept on upgrades:
+#   kubectl -n {{ .Release.Namespace }} get secret {{ $tokenSecret }} -o jsonpath='{.data.token}' | base64 -d
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $tokenSecret }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: harbor-adapter
+type: Opaque
+data:
+  token: {{ $token }}
+---
+{{- end }}
+{{- if $v.ignoreRules }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-harbor-adapter-ignore
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: harbor-adapter
+data:
+  ignore.yaml: |
+    {{- dict "rules" $v.ignoreRules | toYaml | nindent 4 }}
+---
+{{- end }}
+# Harbor's pluggable scanner adapter: Harbor sends every pushed image here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-harbor-adapter
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: harbor-adapter
+spec:
+  # Reports live in memory: Harbor polls the replica it asked.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: harbor-adapter
+  template:
+    metadata:
+      labels:
+        {{- include "meles.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: harbor-adapter
+      annotations:
+        checksum/ignore: {{ toYaml $v.ignoreRules | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "meles.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      {{- include "meles.scheduling" $v | nindent 6 }}
+      containers:
+        - name: adapter
+          image: {{ include "meles.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [harbor-adapter]
+          env:
+            {{- include "meles.clamdClientEnv" . | nindent 12 }}
+            - {name: MELES_TOKEN_FILE, value: /harbor-token/token}
+            - {name: MELES_WORKERS, value: {{ $v.workers | quote }}}
+            - {name: MELES_CONCURRENCY, value: {{ $v.concurrency | quote }}}
+            - {name: MELES_SKIPPED_SEVERITY, value: {{ $v.skippedSeverity | quote }}}
+            - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
+            {{- if $v.ignoreRules }}
+            - {name: MELES_IGNOREFILE, value: /ignore/ignore.yaml}
+            {{- end }}
+            {{- with $v.upstream.url }}
+            - {name: MELES_UPSTREAM_URL, value: {{ . | quote }}}
+            {{- end }}
+            {{- if $v.upstream.tokenSecret }}
+            - {name: MELES_UPSTREAM_TOKEN_FILE, value: /upstream-token/token}
+            {{- end }}
+            {{- with $v.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /probe/ready, port: http}
+          livenessProbe:
+            httpGet: {path: /probe/healthy, port: http}
+            periodSeconds: 30
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: harbor-token, mountPath: /harbor-token, readOnly: true}
+            {{- if $v.ignoreRules }}
+            - {name: ignore, mountPath: /ignore, readOnly: true}
+            {{- end }}
+            {{- if $v.upstream.tokenSecret }}
+            - {name: upstream-token, mountPath: /upstream-token, readOnly: true}
+            {{- end }}
+            {{- include "meles.clamdClientMounts" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: harbor-token
+          secret:
+            secretName: {{ $tokenSecret }}
+            items:
+              - {key: token, path: token}
+        {{- if $v.ignoreRules }}
+        - name: ignore
+          configMap:
+            name: {{ $fullname }}-harbor-adapter-ignore
+        {{- end }}
+        {{- with $v.upstream.tokenSecret }}
+        - name: upstream-token
+          secret:
+            secretName: {{ . }}
+            items:
+              - {key: token, path: token}
+        {{- end }}
+        {{- include "meles.clamdClientVolumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-harbor-adapter
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: harbor-adapter
+spec:
+  selector:
+    {{- include "meles.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: harbor-adapter
+  ports:
+    - {name: http, port: {{ $v.service.port }}, targetPort: http}
+{{- end }}
