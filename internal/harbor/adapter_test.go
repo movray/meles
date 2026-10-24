@@ -176,6 +176,10 @@ func TestAdapter(t *testing.T) {
 	if resp, out := e.do("POST", "/api/v1/scan", "", `{"registry":{"url":"http://x"},"artifact":{"repository":"a"}}`, true); resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("request without digest: %d %s", resp.StatusCode, out)
 	}
+	// Harbor's internal address is a service name of its namespace.
+	if ref, insecure, err := imageRef(ScanRequest{Registry: Registry{URL: "http://harbor-core:80"}, Artifact: Artifact{Repository: "p/a", Digest: e.digests["clean"]}}, "harbor"); err != nil || !insecure || !strings.HasPrefix(ref, "harbor-core.harbor:80/p/a@") {
+		t.Errorf("internal address: %q %v %v", ref, insecure, err)
+	}
 	if resp, _ := e.do("GET", "/api/v1/scan/unknown/report", mimeVulnReport, "", true); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unknown request: %d", resp.StatusCode)
 	}

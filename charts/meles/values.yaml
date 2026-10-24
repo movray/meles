@@ -287,6 +287,9 @@ harborAdapter:
   auth:
     # Secret with the key "token"; empty: generated and kept.
     existingSecret: ""
+  # Namespace of Harbor. Harbor sends its registry as a short service name
+  # (http://harbor-core:80); the adapter completes it to harbor-core.<ns>.
+  harborNamespace: harbor
   # Harbor severity of files that were not scanned. Critical (default):
   # an unscanned file does not pass a "prevent vulnerable images" gate.
   skippedSeverity: Critical

@@ -51,7 +51,11 @@ type Config struct {
 	ScanTimeout time.Duration
 	// KeepReports is how long reports are kept for Harbor to fetch.
 	KeepReports time.Duration
-	Logger      *slog.Logger
+	// HarborNamespace completes the short service names Harbor sends as its
+	// registry address ("http://harbor-core:80" with use_internal_addr), so
+	// that the adapter can run in another namespace.
+	HarborNamespace string
+	Logger          *slog.Logger
 }
 
 // Adapter serves the scanner adapter API.
@@ -218,7 +222,7 @@ func (a *Adapter) handleScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid scan request: %w", err))
 		return
 	}
-	if _, _, err := imageRef(req); err != nil {
+	if _, _, err := imageRef(req, a.cfg.HarborNamespace); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -325,7 +329,7 @@ func (a *Adapter) run(ctx context.Context, j *job) {
 }
 
 func (a *Adapter) scan(ctx context.Context, j *job) (*VulnerabilityReport, error) {
-	ref, insecure, err := imageRef(j.req)
+	ref, insecure, err := imageRef(j.req, a.cfg.HarborNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -406,8 +410,9 @@ func maxSeverity(vs []Vulnerability) string {
 }
 
 // imageRef returns the image reference of a scan request by digest, and
-// whether the registry is plain HTTP.
-func imageRef(req ScanRequest) (string, bool, error) {
+// whether the registry is plain HTTP. A host without a dot (a service name
+// in Harbor's namespace) gets namespace appended, if set.
+func imageRef(req ScanRequest, namespace string) (string, bool, error) {
 	u, err := url.Parse(req.Registry.URL)
 	if err != nil || u.Host == "" {
 		return "", false, fmt.Errorf("registry url %q: want e.g. https://harbor.example.com", req.Registry.URL)
@@ -415,7 +420,14 @@ func imageRef(req ScanRequest) (string, bool, error) {
 	if req.Artifact.Repository == "" || !strings.HasPrefix(req.Artifact.Digest, "sha256:") {
 		return "", false, errors.New("artifact needs repository and a sha256 digest")
 	}
-	ref := u.Host + "/" + req.Artifact.Repository + "@" + req.Artifact.Digest
+	host := u.Host
+	if namespace != "" && !strings.Contains(u.Hostname(), ".") && u.Hostname() != "localhost" {
+		host = u.Hostname() + "." + namespace
+		if p := u.Port(); p != "" {
+			host += ":" + p
+		}
+	}
+	ref := host + "/" + req.Artifact.Repository + "@" + req.Artifact.Digest
 	if _, err := name.NewDigest(ref, name.Insecure); err != nil {
 		return "", false, fmt.Errorf("artifact %s: %w", ref, err)
 	}

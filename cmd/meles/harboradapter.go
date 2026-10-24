@@ -33,6 +33,7 @@ func newHarborAdapterCmd() *cobra.Command {
 		skippedSev  string
 		upstreamURL string
 		upstreamTok string
+		harborNS    string
 		cacheSize   int
 		cachePaths  int
 	)
@@ -93,7 +94,7 @@ the CVEs and the malware findings, and SBOM requests are passed through.`,
 			sc.Logger = log
 			a := harbor.New(harbor.Config{
 				Scanner: sc, Version: version, Token: token, Rules: rules, SkippedSeverity: skippedSev,
-				Upstream: upstream, Workers: workers, ScanTimeout: scanTimeout, KeepReports: keep, Logger: log,
+				Upstream: upstream, Workers: workers, ScanTimeout: scanTimeout, KeepReports: keep, HarborNamespace: harborNS, Logger: log,
 			})
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -135,6 +136,7 @@ the CVEs and the malware findings, and SBOM requests are passed through.`,
 	fs.StringVar(&skippedSev, "skipped-severity", "Critical", "Harbor severity of files that were not scanned")
 	fs.StringVar(&upstreamURL, "upstream-url", "", "scanner adapter to chain, e.g. Trivy's: http://harbor-trivy:8080")
 	fs.StringVar(&upstreamTok, "upstream-token-file", "", "file with a bearer token for the upstream adapter, if it wants one")
+	fs.StringVar(&harborNS, "harbor-namespace", "", "namespace of Harbor: completes the short service name Harbor sends as its registry address (http://harbor-core:80 becomes harbor-core.<namespace>) when the adapter runs elsewhere")
 	fs.IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory; Harbor's images share many base layers")
 	fs.IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd
