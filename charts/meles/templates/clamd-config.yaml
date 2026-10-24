@@ -1,6 +1,7 @@
 {{- if .Values.clamd.enabled }}
 {{- $fullname := include "meles.fullname" . }}
 {{- $fileSize := include "meles.bytes" .Values.scan.maxFileSize | atoi }}
+{{- $scanWait := add (div (.Values.clamd.maxScanTime | int) 1000) 60 }}
 {{- if gt $fileSize 2147483647 }}
 {{- fail "scan.maxFileSize: ClamAV cannot scan files larger than 2G minus 1 byte, use at most 2047M" }}
 {{- end }}
@@ -38,9 +39,11 @@ data:
     AlertExceedsMax yes
     MaxThreads {{ .Values.clamd.maxThreads }}
     MaxConnectionQueueLength 30
-    # Sessions stay open while meles reads the next layer.
-    IdleTimeout 120
-    ReadTimeout 180
+    # Sessions stay open while meles reads the next layer. While clamd scans
+    # a file, the session is silent until the verdict: both timeouts must
+    # outlast MaxScanTime, or clamd closes the connection (meles: EOF).
+    IdleTimeout {{ max 120 $scanWait }}
+    ReadTimeout {{ max 180 $scanWait }}
     CommandReadTimeout 30
     # yes: no scan pause during a reload, but almost twice the memory.
     ConcurrentDatabaseReload yes
