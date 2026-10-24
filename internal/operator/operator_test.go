@@ -281,7 +281,31 @@ func TestRescan(t *testing.T) {
 
 	// After an update it is rescanned with the new signatures.
 	e.engine.SetSignatures("2")
-	e.reportWhere(t, ns, "pod-app-app", "rescanned", func(r *v1alpha1.MalwareReport) bool {
+	rescanned := e.reportWhere(t, ns, "pod-app-app", "rescanned", func(r *v1alpha1.MalwareReport) bool {
 		return r.Report.Scanner.Signatures == "2" && r.Report.Summary.Status == v1alpha1.StatusClean
+	})
+
+	// A second workload with the image gets a copy of the result.
+	e.runPod(t, ns, "copy", nil, e.imageID(t, "clean"))
+	if got := e.report(t, ns, "pod-copy-app").Report; !got.ScannedAt.Equal(&rescanned.Report.ScannedAt) {
+		t.Errorf("copy scanned at %v, want %v", got.ScannedAt, rescanned.Report.ScannedAt)
+	}
+
+	// meles.io/rescan scans again although the result is current, removes
+	// the annotation and updates the copy too.
+	time.Sleep(1100 * time.Millisecond) // ScannedAt has seconds
+	scans = e.engine.Scans.Load()
+	rescanned.Annotations = map[string]string{v1alpha1.AnnotationRescan: "1"}
+	if err := e.c.Update(context.Background(), rescanned); err != nil {
+		t.Fatal(err)
+	}
+	forced := e.reportWhere(t, ns, "pod-app-app", "rescanned on request", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.ScannedAt.After(rescanned.Report.ScannedAt.Time)
+	})
+	if rescanRequested(forced) || e.engine.Scans.Load() == scans {
+		t.Errorf("annotations %v after %d engine scans", forced.Annotations, e.engine.Scans.Load()-scans)
+	}
+	e.reportWhere(t, ns, "pod-copy-app", "updated", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.ScannedAt.Equal(&forced.Report.ScannedAt)
 	})
 }

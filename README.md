@@ -226,7 +226,13 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
   rescanned when
   the signature database changed, at most once per `operator.rescanInterval`
   (24h; each rescan pulls the image again).
-- A deleted report is written again right away.
+- A deleted report is written again right away. To rescan an image now,
+  e.g. after raising clamd's limits, annotate one of its reports; all
+  reports of the image get the new result:
+
+  ```sh
+  kubectl annotate malwarereport -n nextcloud replicaset-nextcloud-7d9f-app meles.io/rescan=1
+  ```
 - Images of private registries cannot be pulled yet (planned: pull secrets of
   the pod), they are reported as `Error`.
 
