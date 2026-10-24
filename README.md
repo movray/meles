@@ -84,6 +84,7 @@ environment variables, which win over defaults.
 | `--clamd` | `unix:///run/clamav/clamd.ctl` | `unix:///path`, `tcp://host:3310` or `tls://host:3310` (clamd-proxy) |
 | `--clamd-token` | | token for `meles clamd-proxy`; set it as `MELES_CLAMD_TOKEN`, a flag shows up in the process list |
 | `--clamd-ca` | system roots | CA certificate of `meles clamd-proxy` |
+| `--clamd-timeout` | `5m` | wait for clamd's verdict on a file; keep it above clamd's `MaxScanTime` |
 | `--platform` | `all` | `all`, `host` or a list like `linux/amd64,linux/arm64` |
 | `--format` | `table` | `table`, `json` |
 | `--exit-code` | `1` | exit code on findings; `2` is reserved for errors |
@@ -183,7 +184,7 @@ Important values (see `charts/meles/values.yaml`):
 | `imagePullSecrets` | `[]` | pull secrets for the meles image |
 | `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` (`MaxScanSize` at least this); at most `2047M` |
 | `clamd.maxScanSize` | `100M` | clamd's `MaxScanSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
-| `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more |
+| `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more. `--clamd-timeout` of the meles clients follows it (plus a minute, at least 5 minutes) |
 | `clamd.maxFiles` | `10000` | clamd's `MaxFiles`: files scanned per archive |
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.clusterReports.enabled` | with `operator.enabled` | page "Cluster" with the operator's MalwareReports (ClusterRole: read `malwarereports`) |

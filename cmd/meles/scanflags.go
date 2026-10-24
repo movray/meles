@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 
@@ -19,6 +20,7 @@ type scanFlags struct {
 	clamd        string
 	clamdToken   string
 	clamdCA      string
+	clamdTimeout time.Duration
 	concurrency  int
 	maxFileSize  sizeValue
 	maxLayerSize sizeValue
@@ -32,6 +34,7 @@ func (f *scanFlags) register(fs *pflag.FlagSet) {
 	fs.StringVar(&f.clamd, "clamd", "unix:///run/clamav/clamd.ctl", "clamd address: unix:///path, tcp://host:3310 or tls://host:3310 (meles clamd-proxy)")
 	fs.StringVar(&f.clamdToken, "clamd-token", "", "token for meles clamd-proxy; prefer MELES_CLAMD_TOKEN, a flag is visible in the process list")
 	fs.StringVar(&f.clamdCA, "clamd-ca", "", "CA certificate (PEM) of meles clamd-proxy; default: system roots")
+	fs.DurationVar(&f.clamdTimeout, "clamd-timeout", 5*time.Minute, "wait this long for clamd's verdict on a file (and for each chunk sent); keep it above clamd's MaxScanTime")
 	fs.IntVar(&f.concurrency, "concurrency", 4, "parallel clamd sessions per scan")
 	fs.Var(&f.maxFileSize, "max-file-size", "skip and report files larger than this, at most 2047M (ClamAV's limit); keep it at or below clamd's StreamMaxLength and MaxFileSize")
 	fs.Var(&f.maxLayerSize, "max-layer-size", "fail on layers larger than this (uncompressed)")
@@ -45,6 +48,10 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 		return nil, err
 	}
 	c.Token = f.clamdToken
+	if f.clamdTimeout <= 0 {
+		return nil, fmt.Errorf("--clamd-timeout must be greater than 0")
+	}
+	c.Timeout = f.clamdTimeout
 	if f.clamdCA != "" {
 		if c.TLSConfig, err = clamd.LoadCA(f.clamdCA); err != nil {
 			return nil, fmt.Errorf("--clamd-ca: %w", err)

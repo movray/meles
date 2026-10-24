@@ -58,6 +58,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* Environment, mounts and volumes of a pod that scans with clamd. */}}
 {{- define "meles.clamdClientEnv" -}}
 - {name: MELES_CLAMD, value: {{ include "meles.clamdAddress" . | quote }}}
+# Wait longer for a verdict than clamd may scan a file (MaxScanTime), or
+# meles gives up first and the image ends as Error; at least 5 minutes.
+- {name: MELES_CLAMD_TIMEOUT, value: {{ printf "%ds" (max 300 (add (div (.Values.clamd.maxScanTime | int) 1000) 60)) | quote }}}
 {{- if include "meles.clamdAuth" . }}
 - name: MELES_CLAMD_TOKEN
   valueFrom:

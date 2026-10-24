@@ -120,7 +120,8 @@ clamd:
   # binaries); raised to scan.maxFileSize if lower. Files beyond it are
   # skipped (Heuristics.Limits.Exceeded.MaxScanSize).
   maxScanSize: 100M
-  # Maximum scan time per file in milliseconds (clamd default 120000).
+  # Maximum scan time per file in milliseconds (clamd default 120000). The
+  # meles clients wait this long plus a minute (at least 5 minutes).
   # Large compressed archives such as php.tar.xz can need more; files beyond
   # it are skipped (Heuristics.Limits.Exceeded.MaxScanTime).
   maxScanTime: 120000
