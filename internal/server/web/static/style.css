@@ -280,3 +280,7 @@ button.danger { background: var(--critical); border-color: var(--critical); colo
 .filter-form input { flex: 1 1 260px; }
 a.tile-link { color: inherit; text-decoration: none; }
 a.tile-link:hover { border-color: var(--accent); }
+
+/* Entries an ignore rule takes out of the verdict stay listed, recessive. */
+.row-ignored td { color: var(--muted); }
+.row-ignored .badge { opacity: 0.6; }

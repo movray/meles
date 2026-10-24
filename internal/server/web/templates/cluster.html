@@ -91,7 +91,7 @@
       </td>
       <td class="ref"><code>{{or $r.Image.Reference $r.Image.Repository}}</code><div class="sub"><code title="{{$r.Image.Digest}}">{{short $r.Image.Digest}}</code></div></td>
       <td class="num">{{if $r.Summary.Findings}}<strong class="ink-critical">{{$r.Summary.Findings}}</strong>{{else}}0{{end}}</td>
-      <td class="num">{{$r.Summary.Skipped}}</td>
+      <td class="num">{{$r.Summary.Skipped}}{{with $r.Summary.Ignored}}<div class="sub">{{.}} ignored</div>{{end}}</td>
       <td>{{$since := index $d.Since (printf "%s/%s" .Namespace .Name)}}{{if $since.IsZero}}–{{else}}<span title="{{time $since}}">{{ago $since}}</span>{{end}}</td>
       <td><span title="{{time $r.ScannedAt.Time}}">{{ago $r.ScannedAt.Time}}</span></td>
     </tr>

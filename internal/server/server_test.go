@@ -296,6 +296,15 @@ func TestClusterReports(t *testing.T) {
 			}
 		}
 	}
+	// An entry an ignore rule took out of the verdict stays listed, marked.
+	reports.mu.Lock()
+	reports.reports[0].Report.Summary.Ignored, reports.reports[0].Report.Summary.IgnoredSkipped = 1, 1
+	reports.reports[0].Report.Skipped = []v1alpha1.Skipped{{Path: "/usr/src/php.tar.xz", Reason: "engine limit exceeded", Signature: "Heuristics.Limits.Exceeded.MaxRecursion",
+		Ignored: &v1alpha1.IgnoreMatch{Rule: "known-harmless/php-phar-test-quine", Reason: "PHP test quine", Expires: "2027-06-30"}}}
+	reports.mu.Unlock()
+	if _, out := e.do("GET", "/cluster/shop/replicaset-web-app", "", ""); !strings.Contains(out, "1 entry ignored by rules") || !strings.Contains(out, "known-harmless/php-phar-test-quine until 2027-06-30") || !strings.Contains(out, "row-ignored") {
+		t.Error("report page without the ignored entry")
+	}
 	if _, out := e.do("GET", "/", "", ""); !strings.Contains(out, "Cluster workloads") || !strings.Contains(out, `href="/cluster"`) {
 		t.Error("dashboard without cluster tile or navigation")
 	}
