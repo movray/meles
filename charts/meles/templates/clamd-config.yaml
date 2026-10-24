@@ -31,6 +31,7 @@ data:
     # At least MaxFileSize, or large files would only be reported as
     # Heuristics.Limits.Exceeded.
     MaxScanSize {{ max (include "meles.bytes" .Values.clamd.maxScanSize | atoi) $fileSize }}
+    MaxScanTime {{ .Values.clamd.maxScanTime | int }}
     # Answer Heuristics.Limits.Exceeded.* instead of a silent OK when a file
     # or archive exceeds a limit; meles lists such files as skipped.
     AlertExceedsMax yes

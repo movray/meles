@@ -29,6 +29,7 @@ func newOperatorCmd() *cobra.Command {
 		workers      int
 		scanTimeout  time.Duration
 		retryAfter   time.Duration
+		retryIncompl time.Duration
 		rescan       time.Duration
 		healthListen string
 		leaderElect  bool
@@ -44,7 +45,8 @@ runs, by digest. The result is written as a MalwareReport (meles.io/v1alpha1)
 in the pod's namespace, one per workload and container, owned by the workload.
 Every digest is scanned once; other workloads with the same image get a copy.
 Reports are rescanned when the signature database changed, at most once per
---rescan-interval, and after --retry-after if the scan failed or was incomplete.
+--rescan-interval, after --retry-after if the scan failed and after
+--retry-incomplete-after if files were skipped.
 
 It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		Args: cobra.NoArgs,
@@ -90,7 +92,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 			r := &operator.Reconciler{
 				Client: mgr.GetClient(), Scanner: sc, Engine: sc.Engine, Version: version,
 				Platforms: platforms, Workers: workers,
-				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RescanInterval: rescan, Logger: log,
+				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RetryIncompleteAfter: retryIncompl, RescanInterval: rescan, Logger: log,
 			}
 			if err := r.SetupWithManager(mgr); err != nil {
 				return fmt.Errorf("set up controller: %w", err)
@@ -112,7 +114,8 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	cmd.Flags().StringVar(&platforms, "platform", operator.PlatformsNodes, "platforms to scan: nodes (architectures of the cluster's nodes), all, or a list such as linux/amd64,linux/arm64")
 	cmd.Flags().IntVar(&workers, "workers", 2, "pods reconciled (and images scanned) in parallel; each scan uses --concurrency clamd sessions")
 	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")
-	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed or was incomplete")
+	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed")
+	cmd.Flags().DurationVar(&retryIncompl, "retry-incomplete-after", 12*time.Hour, "wait before rescanning an image with skipped files (usually clamd limits, see clamd.maxScanSize/maxScanTime in the chart)")
 	cmd.Flags().DurationVar(&rescan, "rescan-interval", 24*time.Hour, "rescan images when the signature database changed, at most this often per image; 0 disables")
 	cmd.Flags().StringVar(&healthListen, "health-listen", ":8081", "listen address of /healthz and /readyz")
 	cmd.Flags().BoolVar(&leaderElect, "leader-elect", true, "use leader election, so that only one replica scans")

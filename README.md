@@ -182,6 +182,8 @@ Important values (see `charts/meles/values.yaml`):
 |---|---|---|
 | `imagePullSecrets` | `[]` | pull secrets for the meles image |
 | `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` (`MaxScanSize` at least this); at most `2047M` |
+| `clamd.maxScanSize` | `100M` | clamd's `MaxScanSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
+| `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more |
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
@@ -193,7 +195,8 @@ Important values (see `charts/meles/values.yaml`):
 | `networkPolicy.serverFrom` | `[]` | restrict access to the UI, e.g. to the ingress controller |
 | `operator.enabled` | `false` | run the operator |
 | `operator.platform` | `nodes` | `nodes` (architectures of the cluster's nodes), `all`, or a list |
-| `operator.retryAfter` | `1h` | retry of failed and incomplete scans |
+| `operator.retryAfter` | `1h` | retry of failed scans |
+| `operator.retryIncompleteAfter` | `12h` | rescan of images with skipped files |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
 
 ### Operator
@@ -217,8 +220,10 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
 - `Status` is `Clean`, `Infected`, `Incomplete` (files skipped) or `Error`
   (not scanned, e.g. a private registry or an image imported into the node).
   `Error` and `Incomplete` are never clean.
-- `Error` and `Incomplete` are retried after `operator.retryAfter` (1h), for
-  example once clamd's limits were raised. Other results are rescanned when
+- `Error` is retried after `operator.retryAfter` (1h), `Incomplete` after
+  `operator.retryIncompleteAfter` (12h), for example once clamd's limits
+  (`clamd.maxScanSize`, `clamd.maxScanTime`) were raised. Other results are
+  rescanned when
   the signature database changed, at most once per `operator.rescanInterval`
   (24h; each rescan pulls the image again).
 - A deleted report is written again right away.

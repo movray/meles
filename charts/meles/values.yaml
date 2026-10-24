@@ -109,8 +109,14 @@ clamd:
     tag: "1.4"
     pullPolicy: IfNotPresent
   replicas: 1
-  # Raised to scan.maxFileSize if lower.
+  # Data scanned per file including unpacked content (archives, packed
+  # binaries); raised to scan.maxFileSize if lower. Files beyond it are
+  # skipped (Heuristics.Limits.Exceeded.MaxScanSize).
   maxScanSize: 100M
+  # Maximum scan time per file in milliseconds (clamd default 120000).
+  # Large compressed archives such as php.tar.xz can need more; files beyond
+  # it are skipped (Heuristics.Limits.Exceeded.MaxScanTime).
+  maxScanTime: 120000
   maxThreads: 12
   # clamd has no authentication of its own. With auth enabled, clamd listens
   # only on 127.0.0.1 and the sidecar "meles clamd-proxy" accepts clients
@@ -212,8 +218,12 @@ operator:
   workers: 2
   # Parallel clamd sessions per scan.
   concurrency: 4
-  # Wait before retrying an image whose scan failed or was incomplete.
+  # Wait before retrying an image whose scan failed (pull or engine error).
   retryAfter: 1h
+  # Wait before rescanning an image with skipped files. Usually clamd's
+  # limits (clamd.maxScanSize, clamd.maxScanTime) are the cause; a retry
+  # only helps once they were raised and scans the large files again.
+  retryIncompleteAfter: 12h
   # Rescan images when the signature database changed, at most this often
   # per image (each rescan pulls the image again); 0 disables.
   rescanInterval: 24h

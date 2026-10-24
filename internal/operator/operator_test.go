@@ -79,7 +79,7 @@ func setup(t *testing.T, configure func(*env)) *env {
 		},
 		Engine:  e.engine,
 		Version: "test", Platforms: "all", Workers: 2,
-		ScanTimeout: time.Minute, RetryAfter: time.Hour, RescanInterval: 24 * time.Hour,
+		ScanTimeout: time.Minute, RetryAfter: time.Hour, RetryIncompleteAfter: time.Hour, RescanInterval: 24 * time.Hour,
 	}
 	if configure != nil {
 		configure(e)
@@ -252,7 +252,7 @@ func TestRescan(t *testing.T) {
 	// clamd rejects every file, as with too small limits.
 	e := setup(t, func(e *env) {
 		e.engine.MaxSize = 1
-		e.r.RetryAfter, e.r.RescanInterval, e.r.versionTTL = 2*time.Second, 2*time.Second, time.Nanosecond
+		e.r.RetryIncompleteAfter, e.r.RescanInterval, e.r.versionTTL = 2*time.Second, 2*time.Second, time.Nanosecond
 	})
 	ns := "shop"
 	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
@@ -262,7 +262,8 @@ func TestRescan(t *testing.T) {
 		t.Fatalf("status with too small limits = %s", first.Report.Summary.Status)
 	}
 
-	// Incomplete is retried after RetryAfter: with fixed limits it is clean.
+	// Incomplete is retried after RetryIncompleteAfter: with raised limits it
+	// is clean.
 	e.engine.SetMaxSize(0)
 	clean := e.reportWhere(t, ns, "pod-app-app", "clean after retry", func(r *v1alpha1.MalwareReport) bool {
 		return r.Report.Summary.Status == v1alpha1.StatusClean

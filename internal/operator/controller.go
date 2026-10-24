@@ -2,8 +2,8 @@
 // the results as MalwareReports, one per workload and container. Every image
 // digest is scanned once; further workloads with the same image get a copy
 // of the result. Results are rescanned when the signature database changed
-// (at most once per RescanInterval) and, if the scan failed or was
-// incomplete, after RetryAfter.
+// (at most once per RescanInterval), after RetryAfter if the scan failed and
+// after RetryIncompleteAfter if files were skipped.
 package operator
 
 import (
@@ -68,9 +68,12 @@ type Reconciler struct {
 	Workers int
 	// ScanTimeout bounds a single image scan.
 	ScanTimeout time.Duration
-	// RetryAfter is the wait before an image whose scan failed or was
-	// incomplete is retried.
+	// RetryAfter is the wait before an image whose scan failed is retried.
 	RetryAfter time.Duration
+	// RetryIncompleteAfter is the wait before an image with skipped files is
+	// rescanned. Usually clamd's limits are the cause, so a retry only helps
+	// once they were raised, and it scans the large files again.
+	RetryIncompleteAfter time.Duration
 	// RescanInterval is the minimum age of a result before it is rescanned
 	// because the signature database changed. 0 disables rescans.
 	RescanInterval time.Duration
@@ -265,20 +268,26 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings)
 	stale, wait, err := r.stale(ctx, res)
 	if stale {
-		// Due again already (RetryAfter shorter than scan and write).
+		// Due again already (retry shorter than scan and write).
 		return time.Second, err
 	}
 	return wait, err
 }
 
-// stale reports whether res needs a new scan: a failed or incomplete scan
-// after RetryAfter, any other after RescanInterval if the engine or its
-// signatures changed since. If res is current, wait is when to look again
+// stale reports whether res needs a new scan: a failed scan after
+// RetryAfter, an incomplete one after RetryIncompleteAfter, any other after
+// RescanInterval if the engine or its signatures changed since. If res is current, wait is when to look again
 // (0: not before the next pod event).
 func (r *Reconciler) stale(ctx context.Context, res result) (stale bool, wait time.Duration, err error) {
+	retry := time.Duration(0)
 	switch res.summary.Status {
-	case v1alpha1.StatusError, v1alpha1.StatusIncomplete:
-		if wait := time.Until(res.scannedAt.Add(r.RetryAfter)); wait > 0 {
+	case v1alpha1.StatusError:
+		retry = r.RetryAfter
+	case v1alpha1.StatusIncomplete:
+		retry = r.RetryIncompleteAfter
+	}
+	if retry > 0 {
+		if wait := time.Until(res.scannedAt.Add(retry)); wait > 0 {
 			return false, wait, nil
 		}
 		return true, 0, nil
