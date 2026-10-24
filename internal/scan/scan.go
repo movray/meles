@@ -62,7 +62,7 @@ type layerResult struct {
 const limitSignaturePrefix = "Heuristics.Limits.Exceeded"
 
 type hit struct {
-	path, signature string
+	path, signature, sha256 string
 }
 
 // bufferLimit is the largest file that is read into memory and queued, so
@@ -227,9 +227,25 @@ func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob)
 			return err
 		}
 	}
-	r := j.stream
-	if r == nil {
+	// The hash of flagged and skipped files lets ignore rules name exactly
+	// that content. Streamed files are hashed while they are read.
+	var r io.Reader
+	streamHash := sha256.New()
+	if j.stream != nil {
+		r = io.TeeReader(j.stream, streamHash)
+	} else {
 		r = bytes.NewReader(j.data)
+	}
+	sum := func() (string, error) {
+		if j.stream == nil {
+			h := sha256.Sum256(j.data)
+			return hex.EncodeToString(h[:]), nil
+		}
+		// Read what the engine left, e.g. after refusing the stream.
+		if _, err := io.Copy(io.Discard, r); err != nil {
+			return "", fmt.Errorf("read %s: %w", j.path, err)
+		}
+		return hex.EncodeToString(streamHash.Sum(nil)), nil
 	}
 	sig, err := (*sess).Scan(ctx, r)
 	if errors.Is(err, engine.ErrTooLarge) {
@@ -237,23 +253,31 @@ func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob)
 		// the session; the next file gets a new one.
 		(*sess).Close()
 		*sess = nil
+		h, err := sum()
+		if err != nil {
+			return err
+		}
 		j.res.mu.Lock()
-		j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: j.size, Reason: "refused by the engine as too large (clamd: StreamMaxLength below --max-file-size)"})
+		j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: j.size, Reason: "refused by the engine as too large (clamd: StreamMaxLength below --max-file-size)", Signature: extract.SigEngineTooBig, SHA256: h})
 		j.res.mu.Unlock()
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("scan %s: %w", j.path, err)
 	}
-	switch {
-	case strings.HasPrefix(sig, limitSignaturePrefix):
-		j.res.mu.Lock()
-		j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: j.size, Reason: "engine limit exceeded (" + sig + ")"})
-		j.res.mu.Unlock()
-	case sig != "":
-		j.res.mu.Lock()
-		j.res.hits = append(j.res.hits, hit{j.path, sig})
-		j.res.mu.Unlock()
+	if sig == "" {
+		return nil
+	}
+	h, err := sum()
+	if err != nil {
+		return err
+	}
+	j.res.mu.Lock()
+	defer j.res.mu.Unlock()
+	if strings.HasPrefix(sig, limitSignaturePrefix) {
+		j.res.limited = append(j.res.limited, extract.Skipped{Path: j.path, Size: j.size, Reason: "engine limit exceeded (" + sig + ")", Signature: sig, SHA256: h})
+	} else {
+		j.res.hits = append(j.res.hits, hit{j.path, sig, h})
 	}
 	return nil
 }
@@ -326,6 +350,7 @@ func buildPlatformReport(p source.PlatformImage, layers []LayerReport, results [
 				DiffID:    layers[i].DiffID,
 				Path:      h.path,
 				Signature: h.signature,
+				SHA256:    h.sha256,
 				Status:    StatusPresent,
 				CreatedBy: layers[i].CreatedBy,
 			}

@@ -95,6 +95,13 @@ func TestWalk(t *testing.T) {
 	if len(l.Skipped) != 2 || l.Skipped[0].Path != "/big" || l.Skipped[1].Path != "/odd" {
 		t.Errorf("skipped = %v, want /big and /odd (unsupported type)", l.Skipped)
 	}
+	// sha256("0123456789"): skipped files are hashed for ignore rules.
+	if sk := l.Skipped[0]; sk.Signature != SigMaxFileSize || sk.SHA256 != "84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882" {
+		t.Errorf("skipped /big: signature %q, sha256 %q", sk.Signature, sk.SHA256)
+	}
+	if l.Skipped[1].Signature != SigUnsupported {
+		t.Errorf("skipped /odd: signature %q", l.Skipped[1].Signature)
+	}
 	if l.Files != 3 {
 		t.Errorf("Files = %d, want 3", l.Files)
 	}

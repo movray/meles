@@ -6,6 +6,8 @@ package extract
 
 import (
 	"archive/tar"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -43,11 +45,33 @@ type File struct {
 	Content io.Reader
 }
 
+// Signatures of skipped files, in the style of the engine's
+// Heuristics.Limits.Exceeded.* results, so that ignore rules can name them.
+const (
+	SigMaxFileSize  = "Meles.Limits.MaxFileSize"
+	SigUnsupported  = "Meles.Unsupported.TarEntry"
+	SigEngineTooBig = "Meles.Limits.StreamMaxLength"
+)
+
 // Skipped is a file that was not scanned.
 type Skipped struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
 	Reason string `json:"reason"`
+	// Signature names the reason: SigMaxFileSize, SigUnsupported,
+	// SigEngineTooBig or the engine's Heuristics.Limits.Exceeded.*.
+	Signature string `json:"signature"`
+	// SHA256 of the file content, hex.
+	SHA256 string `json:"sha256,omitempty"`
+}
+
+// hashRest reads the rest of r and returns its sha256, hex.
+func hashRest(r io.Reader) (string, error) {
+	h := sha256.New()
+	if _, err := io.Copy(h, r); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // Layer is everything Walk learned about a layer apart from file contents.
@@ -109,11 +133,21 @@ func Walk(r io.Reader, lim Limits, fn func(File) error) (*Layer, error) {
 			// No content of their own.
 			continue
 		default:
-			l.Skipped = append(l.Skipped, Skipped{Path: p, Size: h.Size, Reason: fmt.Sprintf("unsupported tar entry type %q", h.Typeflag)})
+			sum, err := hashRest(tr)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", p, err)
+			}
+			l.Skipped = append(l.Skipped, Skipped{Path: p, Size: h.Size, Reason: fmt.Sprintf("unsupported tar entry type %q", h.Typeflag), Signature: SigUnsupported, SHA256: sum})
 			continue
 		}
 		if lim.MaxFileSize > 0 && h.Size > lim.MaxFileSize {
-			l.Skipped = append(l.Skipped, Skipped{Path: p, Size: h.Size, Reason: fmt.Sprintf("larger than max file size (%d bytes)", lim.MaxFileSize)})
+			// The content is read anyway to get to the next entry; its hash
+			// lets an ignore rule name exactly this file.
+			sum, err := hashRest(tr)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", p, err)
+			}
+			l.Skipped = append(l.Skipped, Skipped{Path: p, Size: h.Size, Reason: fmt.Sprintf("larger than max file size (%d bytes)", lim.MaxFileSize), Signature: SigMaxFileSize, SHA256: sum})
 			continue
 		}
 		if err := fn(File{Path: p, Size: h.Size, Content: tr}); err != nil {

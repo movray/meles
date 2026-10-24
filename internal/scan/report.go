@@ -62,7 +62,9 @@ type Finding struct {
 	DiffID    string `json:"diffID"`
 	Path      string `json:"path"`
 	Signature string `json:"signature"`
-	Status    string `json:"status"`
+	// SHA256 of the file content, hex.
+	SHA256 string `json:"sha256,omitempty"`
+	Status string `json:"status"`
 	// HiddenByLayer is the layer that deleted or replaced the file.
 	HiddenByLayer int `json:"hiddenByLayer,omitempty"`
 	// HiddenHow is "whiteout", "opaque" or "overwritten".

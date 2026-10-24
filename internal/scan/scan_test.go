@@ -2,6 +2,8 @@ package scan
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -245,6 +247,19 @@ func TestScanStreamsLargeFiles(t *testing.T) {
 			}
 			if n := len(rep.Skipped()); n != tt.wantSkipped || rep.Complete != (n == 0) || rep.Platforms[0].Files != 4 {
 				t.Errorf("skipped = %v, complete = %v, files = %d", rep.Skipped(), rep.Complete, rep.Platforms[0].Files)
+			}
+			// Flagged and skipped files carry the hash of their full
+			// content, streamed or not, for ignore rules.
+			content := map[string]string{"/b-big-clean": big, "/c-big-evil": big + testimage.EICAR(), "/d-small": testimage.EICAR()}
+			for _, f := range rep.Findings() {
+				if want := sha256.Sum256([]byte(content[f.Path])); f.SHA256 != hex.EncodeToString(want[:]) {
+					t.Errorf("finding %s: sha256 %q", f.Path, f.SHA256)
+				}
+			}
+			for _, sk := range rep.Skipped() {
+				if want := sha256.Sum256([]byte(content[sk.Path])); sk.SHA256 != hex.EncodeToString(want[:]) || sk.Signature != extract.SigEngineTooBig {
+					t.Errorf("skipped %s: sha256 %q, signature %q", sk.Path, sk.SHA256, sk.Signature)
+				}
 			}
 		})
 	}
