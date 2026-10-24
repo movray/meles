@@ -43,6 +43,13 @@
     <div class="tile-value">{{num $d.Stats.ScheduledScans}}</div>
     <div class="tile-sub">of {{$d.Stats.Scans}} configured</div>
   </div>
+  {{with $d.Cluster}}
+  <a class="tile tile-link{{if .Infected}} tile-critical{{else if or .Error .Incomplete}} tile-warning{{end}}" href="/cluster">
+    <div class="tile-label">Cluster workloads</div>
+    <div class="tile-value">{{num .Total}}</div>
+    <div class="tile-sub">{{if or .Infected .Error .Incomplete}}{{.Infected}} infected · {{.Error}} errors · {{.Incomplete}} incomplete{{else}}<span aria-hidden="true">✓</span> all clean{{end}}</div>
+  </a>
+  {{end}}
 </section>
 
 <div class="grid-2">

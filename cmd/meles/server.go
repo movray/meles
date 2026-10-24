@@ -12,6 +12,7 @@ import (
 	_ "time/tzdata" // time zones in minimal container images
 
 	"github.com/spf13/cobra"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"git.itknecht.de/sugras/meles/internal/runner"
 	"git.itknecht.de/sugras/meles/internal/scan"
@@ -30,12 +31,17 @@ func newServerCmd() *cobra.Command {
 		timezone   string
 		cacheSize  int
 		cachePaths int
+		cluster    bool
+		rescan     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "server",
 		Short: "Run the web UI with scheduled scans and reports",
 		Long: `server runs the meles web UI and JSON API. Scans can be configured with a
 cron schedule; every run is stored with its full report in a SQLite database.
+
+With --cluster-reports it also shows the MalwareReports of the meles operator,
+read from the Kubernetes API (KUBECONFIG or, in a pod, its service account).
 
 The UI has no login of its own: expose it only inside the cluster or behind an
 authenticating proxy (e.g. oauth2-proxy).`,
@@ -72,10 +78,24 @@ authenticating proxy (e.g. oauth2-proxy).`,
 			if err := sched.Sync(ctx); err != nil {
 				return err
 			}
-			srv, err := server.New(server.Config{
+			var reports *server.KubeReports
+			if cluster {
+				cfg, err := ctrl.GetConfig()
+				if err != nil {
+					return fmt.Errorf("--cluster-reports: kubernetes config: %w", err)
+				}
+				if reports, err = server.NewKubeReports(cfg); err != nil {
+					return fmt.Errorf("--cluster-reports: %w", err)
+				}
+			}
+			cfg := server.Config{
 				Store: st, Runner: run, Scheduler: sched, Engine: sc.Engine, Cache: cache,
 				Location: loc, Logger: log, Version: version,
-			})
+			}
+			if reports != nil {
+				cfg.Cluster, cfg.ClusterRescan = reports, rescan
+			}
+			srv, err := server.New(cfg)
 			if err != nil {
 				return err
 			}
@@ -83,6 +103,13 @@ authenticating proxy (e.g. oauth2-proxy).`,
 			run.Start(ctx)
 			sched.Start()
 			go srv.WatchEngine(ctx, 30*time.Second)
+			if reports != nil {
+				go func() {
+					if err := reports.Start(ctx); err != nil {
+						log.Error("cluster reports stopped", "err", err)
+					}
+				}()
+			}
 
 			hs := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 			errc := make(chan error, 1)
@@ -114,6 +141,8 @@ authenticating proxy (e.g. oauth2-proxy).`,
 	cmd.Flags().DurationVar(&runTimeout, "run-timeout", time.Hour, "maximum duration of a single run")
 	cmd.Flags().StringVar(&timezone, "timezone", "Local", "time zone for display and schedules without CRON_TZ, e.g. Europe/Berlin")
 	cmd.Flags().IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory")
+	cmd.Flags().BoolVar(&cluster, "cluster-reports", false, "show the MalwareReports of the meles operator (needs get/list/watch on malwarereports.meles.io)")
+	cmd.Flags().BoolVar(&rescan, "cluster-rescan", true, "with --cluster-reports: allow requesting a rescan from the UI (needs patch on malwarereports.meles.io)")
 	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd
 }

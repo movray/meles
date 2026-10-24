@@ -21,6 +21,46 @@ spec:
       storage: {{ .Values.server.persistence.size }}
 {{- end }}
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+{{- if include "meles.clusterReports" . }}
+---
+# Read the operator's MalwareReports in all namespaces; patch only to set
+# the meles.io/rescan annotation from the UI.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+rules:
+  - apiGroups: [meles.io]
+    resources: [malwarereports]
+    verbs: [get, list, watch{{ if .Values.server.clusterReports.rescan }}, patch{{ end }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-server
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullname }}-server
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+---
 # Web UI, JSON API, scheduler and run history (SQLite on a volume, so
 # exactly one replica).
 apiVersion: apps/v1
@@ -43,6 +83,9 @@ spec:
         {{- include "meles.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: server
     spec:
+      serviceAccountName: {{ $fullname }}-server
+      # The token is only needed to read the cluster's MalwareReports.
+      automountServiceAccountToken: {{ include "meles.clusterReports" . | eq "true" }}
       {{- include "meles.imagePullSecrets" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
@@ -67,6 +110,10 @@ spec:
             - {name: MELES_WORKERS, value: {{ .Values.server.workers | quote }}}
             - {name: MELES_CONCURRENCY, value: {{ .Values.server.concurrency | quote }}}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
+            {{- if include "meles.clusterReports" . }}
+            - {name: MELES_CLUSTER_REPORTS, value: "true"}
+            - {name: MELES_CLUSTER_RESCAN, value: {{ .Values.server.clusterReports.rescan | quote }}}
+            {{- end }}
             {{- if .Values.server.registryAuthSecret }}
             - {name: DOCKER_CONFIG, value: /docker}
             {{- end }}

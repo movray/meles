@@ -1,0 +1,85 @@
+{{define "content"}}
+{{$m := .Data.Report}}{{$r := $m.Report}}{{$st := clusterStatus $r.Summary.Status}}
+<div class="page-head">
+  <div>
+    <p class="crumb"><a href="/cluster">Cluster</a> / <a href="{{query "/cluster" "namespace" $m.Namespace}}">{{$m.Namespace}}</a> / {{$m.Name}}</p>
+    <h1>{{$r.Workload.Name}}</h1>
+    <p class="sub">{{$r.Workload.Kind}} in <code>{{$m.Namespace}}</code> · {{if $r.Workload.InitContainer}}init container{{else}}container{{end}} <code>{{$r.Workload.Container}}</code></p>
+  </div>
+  {{if .Data.Rescan}}
+  <div class="head-actions">
+    {{if rescanPending $m}}<button type="button" class="secondary" disabled>Rescan requested…</button>
+    {{else}}<form method="post" action="/cluster/{{$m.Namespace}}/{{$m.Name}}/rescan" data-confirm="Scan this image again now? The result goes to every report of the image."><button type="submit" class="secondary">Rescan</button></form>{{end}}
+  </div>
+  {{end}}
+</div>
+
+<section class="verdict verdict-{{$st}}">
+  <div class="verdict-icon" aria-hidden="true">{{statusIcon $st}}</div>
+  <div>
+    <div class="verdict-title">
+      {{if eq $st "clean"}}No malware found
+      {{else if eq $st "infected"}}{{$r.Summary.Findings}} finding{{if ne $r.Summary.Findings 1}}s{{end}}
+      {{else if eq $st "incomplete"}}No malware found, but {{$r.Summary.Skipped}} file{{if ne $r.Summary.Skipped 1}}s were{{else}} was{{end}} not scanned
+      {{else}}Scan failed – the image was not scanned{{end}}
+    </div>
+    <div class="verdict-sub">
+      {{if eq $st "error"}}{{$r.Error}}
+      {{else}}{{num $r.Summary.Files}} files scanned · {{ago $r.ScannedAt.Time}}{{end}}
+      {{if rescanPending $m}} · <strong>rescan requested</strong>, waiting for the operator{{end}}
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <dl class="facts">
+    <div><dt>Image</dt><dd><code>{{$r.Image.Repository}}</code>{{if $r.Image.Reference}}<div class="sub">from the pod spec: <code>{{$r.Image.Reference}}</code></div>{{end}}</dd></div>
+    <div><dt>Digest</dt><dd><code title="{{$r.Image.Digest}}">{{short $r.Image.Digest}}</code></dd></div>
+    <div><dt>Platforms</dt><dd>{{range $i, $p := $r.Platforms}}{{if $i}}, {{end}}<code>{{$p}}</code>{{else}}–{{end}}</dd></div>
+    <div><dt>Engine</dt><dd>{{or $r.Scanner.Engine "–"}}{{if $r.Scanner.Signatures}} · signatures {{$r.Scanner.Signatures}}{{end}}</dd></div>
+    <div><dt>Scanned</dt><dd>{{time $r.ScannedAt.Time}}</dd></div>
+    <div><dt>Operator</dt><dd>meles {{or $r.Scanner.Version "–"}}</dd></div>
+  </dl>
+</section>
+
+{{if $r.Findings}}
+<section class="card">
+  <div class="card-head"><h2>Findings</h2>{{if gt $r.Summary.Findings (len $r.Findings)}}<span class="sub">first {{len $r.Findings}} of {{$r.Summary.Findings}}</span>{{end}}</div>
+  <p class="note">Files with the status <em>deleted</em> were removed by a later layer but are still shipped with the image: everyone who pulls it receives them, and they can be restored from that layer.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Status</th><th>Path</th><th>Signature</th><th>Platform</th><th>Layer</th><th>Created by</th></tr></thead>
+    <tbody>
+    {{range $r.Findings}}
+    <tr>
+      <td>{{template "badge" .Status}}{{if .HiddenByLayer}}<div class="sub">in layer {{.HiddenByLayer}}</div>{{end}}</td>
+      <td class="ref"><code>{{.Path}}</code></td>
+      <td><code>{{.Signature}}</code></td>
+      <td><code>{{.Platform}}</code></td>
+      <td><span title="{{.DiffID}}">{{.Layer}} · <code>{{short .DiffID}}</code></span></td>
+      <td class="created-by"><code title="{{.CreatedBy}}">{{.CreatedBy}}</code></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+
+{{if $r.Skipped}}
+<section class="card">
+  <div class="card-head"><h2>Skipped files</h2>{{if gt $r.Summary.Skipped (len $r.Skipped)}}<span class="sub">first {{len $r.Skipped}} of {{$r.Summary.Skipped}}</span>{{end}}</div>
+  <p class="note">These files were <strong>not scanned</strong>. <code>Heuristics.Limits.Exceeded.*</code> means one of clamd's limits (chart values <code>clamd.maxScanSize</code>, <code>clamd.maxScanTime</code>, <code>clamd.maxFiles</code>, <code>scan.maxFileSize</code>).</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Path</th><th>Platform</th><th class="num">Layer</th><th class="num">Size</th><th>Reason</th></tr></thead>
+    <tbody>
+    {{range $r.Skipped}}
+    <tr><td class="ref"><code>{{.Path}}</code></td><td><code>{{.Platform}}</code></td><td class="num">{{.Layer}}</td><td class="num">{{bytes .Size}}</td><td>{{.Reason}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+{{end}}

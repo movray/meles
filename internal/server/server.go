@@ -1,5 +1,6 @@
 // Package server is the meles web UI and JSON API: configured scans with
-// schedules, scan runs with their results, and reports.
+// schedules, scan runs with their results, reports, and the MalwareReports
+// of the meles operator.
 package server
 
 import (
@@ -34,6 +35,8 @@ type Server struct {
 	log       *slog.Logger
 	version   string
 	pages     map[string]*pageTemplate
+	cluster   ClusterReports
+	rescan    bool
 
 	mu           sync.Mutex
 	engineStatus EngineStatus
@@ -57,6 +60,10 @@ type Config struct {
 	Location  *time.Location
 	Logger    *slog.Logger
 	Version   string
+	// Cluster, if set, shows the operator's MalwareReports.
+	Cluster ClusterReports
+	// ClusterRescan allows requesting a rescan from the UI.
+	ClusterRescan bool
 }
 
 // New returns a server.
@@ -70,6 +77,8 @@ func New(c Config) (*Server, error) {
 		loc:       c.Location,
 		log:       c.Logger,
 		version:   c.Version,
+		cluster:   c.Cluster,
+		rescan:    c.ClusterRescan,
 	}
 	if s.loc == nil {
 		s.loc = time.Local
@@ -146,6 +155,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /runs/{id}/report.json", s.handleRunReport)
 	mux.HandleFunc("GET /reports", s.handleReports)
 	mux.HandleFunc("GET /reports/findings.csv", s.handleFindingsCSV)
+	mux.HandleFunc("GET /cluster", s.handleCluster)
+	mux.HandleFunc("GET /cluster/{namespace}/{name}", s.handleClusterReport)
+	mux.HandleFunc("POST /cluster/{namespace}/{name}/rescan", s.handleClusterRescan)
 
 	mux.HandleFunc("GET /api/scans", s.apiListScans)
 	mux.HandleFunc("POST /api/scans", s.apiCreateScan)
@@ -157,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/runs", s.apiCreateRun)
 	mux.HandleFunc("GET /api/runs/{id}", s.apiGetRun)
 	mux.HandleFunc("GET /api/runs/{id}/report", s.handleRunReport)
+	mux.HandleFunc("GET /api/cluster/reports", s.apiClusterReports)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ping(r.Context()); err != nil {
@@ -197,7 +210,7 @@ func errStatus(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, runner.ErrQueueFull):
+	case errors.Is(err, runner.ErrQueueFull), errors.Is(err, errNotSynced):
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError

@@ -21,10 +21,10 @@ test:
 test-integration:
 	MELES_TEST_CLAMD=$(CLAMD) go test -race -tags integration ./...
 
-# The operator tests need a real API server and etcd (no Docker); without
+# The operator and cluster-report tests need a real API server and etcd (no Docker); without
 # KUBEBUILDER_ASSETS they are skipped by `make test`.
 test-envtest:
-	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use -p path $(ENVTEST_K8S))" go test -race ./internal/operator/...
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use -p path $(ENVTEST_K8S))" go test -race ./internal/operator/... ./internal/server/...
 
 # Deepcopy functions and the CRD of api/v1alpha1.
 generate:

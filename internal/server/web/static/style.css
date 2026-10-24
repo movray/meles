@@ -164,6 +164,8 @@ td.actions form { display: inline; margin: 0; }
 .badge-deleted, .badge-overwritten { background: var(--warning-soft); }
 .badge-deleted .badge-icon, .badge-overwritten .badge-icon { background: var(--serious); }
 .badge-running .badge-icon { background: var(--accent); color: var(--accent-ink); animation: spin 1.6s linear infinite; }
+.badge-incomplete { background: var(--warning-soft); }
+.badge-incomplete .badge-icon { background: var(--serious); }
 .badge-queued .badge-icon { background: var(--axis); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .badge-running .badge-icon { animation: none; } }
@@ -179,6 +181,8 @@ td.actions form { display: inline; margin: 0; }
 .verdict-infected .verdict-icon { background: var(--critical); }
 .verdict-error { background: var(--warning-soft); border-color: var(--warning); }
 .verdict-error .verdict-icon { background: var(--warning); color: #3a2a00; }
+.verdict-incomplete { background: var(--warning-soft); border-color: var(--serious); }
+.verdict-incomplete .verdict-icon { background: var(--serious); }
 .verdict-running .verdict-icon { background: var(--accent); color: var(--accent-ink); }
 
 /* Facts */
@@ -268,3 +272,11 @@ button.danger { background: var(--critical); border-color: var(--critical); colo
 @media (forced-colors: active) {
   .badge, .tile, .card { border: 1px solid CanvasText; }
 }
+
+/* Cluster page: status chips, namespace and search in one row. */
+.filter-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0 12px; }
+.filter-form .filters { flex: 1 1 100%; }
+.filter-form select { flex: 0 1 220px; }
+.filter-form input { flex: 1 1 260px; }
+a.tile-link { color: inherit; text-decoration: none; }
+a.tile-link:hover { border-color: var(--accent); }

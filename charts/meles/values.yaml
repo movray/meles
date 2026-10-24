@@ -35,6 +35,13 @@ server:
   registryAuthSecret: ""
   # Additional environment variables, e.g. MELES_CACHE_PATHS.
   extraEnv: []
+  # Page "Cluster": the MalwareReports of the operator, read from the
+  # Kubernetes API (ClusterRole with get/list/watch on malwarereports).
+  clusterReports:
+    # null: on together with operator.enabled. true needs the CRD installed.
+    enabled: null
+    # "Rescan" button: sets the meles.io/rescan annotation (adds patch).
+    rescan: true
   persistence:
     # SQLite database (WAL mode); the server therefore runs with exactly one
     # replica. Use a local or block storage class, not NFS: SQLite's WAL

@@ -1,0 +1,79 @@
+{{define "content"}}
+{{$d := .Data}}{{$c := $d.Counts}}
+<div class="page-head">
+  <div>
+    <h1>Cluster</h1>
+    <p class="sub">MalwareReports of the meles operator: the image every container in the cluster runs, one report per workload and container.</p>
+  </div>
+</div>
+
+<section class="tiles" aria-label="Overview">
+  <div class="tile">
+    <div class="tile-label">Reports</div>
+    <div class="tile-value">{{num $c.Total}}</div>
+    <div class="tile-sub">{{num $c.Clean}} clean</div>
+  </div>
+  <div class="tile{{if $c.Infected}} tile-critical{{end}}">
+    <div class="tile-label">Infected</div>
+    <div class="tile-value">{{num $c.Infected}}</div>
+    <div class="tile-sub">{{if $c.Infected}}<span aria-hidden="true">✕</span> need attention{{else}}<span aria-hidden="true">✓</span> none{{end}}</div>
+  </div>
+  <div class="tile{{if $c.Error}} tile-warning{{end}}">
+    <div class="tile-label">Errors</div>
+    <div class="tile-value">{{num $c.Error}}</div>
+    <div class="tile-sub">not scanned, never counted as clean</div>
+  </div>
+  <div class="tile{{if $c.Incomplete}} tile-warning{{end}}">
+    <div class="tile-label">Incomplete</div>
+    <div class="tile-value">{{num $c.Incomplete}}</div>
+    <div class="tile-sub">files skipped, e.g. by clamd's limits</div>
+  </div>
+</section>
+
+<form class="filter-form" method="get" action="/cluster">
+  <nav class="filters" aria-label="Filter by result">
+    <a class="chip" href="{{query "/cluster" "namespace" $d.Filter.Namespace "q" $d.Filter.Query}}"{{if not $d.Filter.Status}} aria-current="true"{{end}}>All</a>
+    {{range $d.Statuses}}
+    <a class="chip" href="{{query "/cluster" "status" . "namespace" $d.Filter.Namespace "q" $d.Filter.Query}}"{{if eq . $d.Filter.Status}} aria-current="true"{{end}}><span aria-hidden="true">{{statusIcon .}}</span> {{statusLabel .}}</a>
+    {{end}}
+  </nav>
+  {{with $d.Filter.Status}}<input type="hidden" name="status" value="{{.}}">{{end}}
+  <label class="sr-only" for="f-ns">Namespace</label>
+  <select id="f-ns" name="namespace">
+    <option value="">All namespaces</option>
+    {{range $d.Namespaces}}<option{{if eq . $d.Filter.Namespace}} selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <label class="sr-only" for="f-q">Search</label>
+  <input id="f-q" name="q" value="{{$d.Filter.Query}}" placeholder="Workload, container, image or digest" autocomplete="off" spellcheck="false">
+  <button type="submit" class="secondary">Filter</button>
+</form>
+
+<div class="card table-card">
+  {{if $d.Reports}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Result</th><th>Workload</th><th>Image</th><th class="num">Findings</th><th class="num">Skipped</th><th>Scanned</th></tr></thead>
+    <tbody>
+    {{range $d.Reports}}{{$r := .Report}}
+    <tr>
+      <td><a class="row-link" href="/cluster/{{.Namespace}}/{{.Name}}">{{template "badge" (clusterStatus $r.Summary.Status)}}</a>{{if rescanPending .}}<div class="sub">rescan requested</div>{{end}}</td>
+      <td class="ref">
+        <a href="/cluster/{{.Namespace}}/{{.Name}}">{{.Namespace}} / {{$r.Workload.Name}}</a>
+        <div class="sub">{{$r.Workload.Kind}} · {{if $r.Workload.InitContainer}}init container{{else}}container{{end}} <code>{{$r.Workload.Container}}</code></div>
+      </td>
+      <td class="ref"><code>{{or $r.Image.Reference $r.Image.Repository}}</code><div class="sub"><code title="{{$r.Image.Digest}}">{{short $r.Image.Digest}}</code></div></td>
+      <td class="num">{{if $r.Summary.Findings}}<strong class="ink-critical">{{$r.Summary.Findings}}</strong>{{else}}0{{end}}</td>
+      <td class="num">{{$r.Summary.Skipped}}</td>
+      <td><span title="{{time $r.ScannedAt.Time}}">{{ago $r.ScannedAt.Time}}</span></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else if $c.Total}}
+  <p class="empty">No report matches the filter.</p>
+  {{else}}
+  <p class="empty">No MalwareReports yet. The operator writes one per workload and container once it has scanned the image.</p>
+  {{end}}
+</div>
+{{end}}

@@ -131,3 +131,13 @@ affinity:
 {{- if not (regexMatch "^[0-9]+$" $v) }}{{ fail (printf "invalid size %q (examples: 512K, 25M, 2047M)" (toString .)) }}{{ end -}}
 {{- mul (atoi $v) $mult -}}
 {{- end }}
+
+{{/*
+"true" if the server shows the operator's MalwareReports: server.clusterReports.enabled,
+or operator.enabled if that is not set.
+*/}}
+{{- define "meles.clusterReports" -}}
+{{- $on := .Values.server.clusterReports.enabled -}}
+{{- if kindIs "invalid" $on }}{{ $on = .Values.operator.enabled }}{{ end -}}
+{{- if and .Values.server.enabled $on }}true{{ end -}}
+{{- end }}

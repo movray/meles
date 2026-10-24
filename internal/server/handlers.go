@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
+	"git.itknecht.de/sugras/meles/api/v1alpha1"
 	"git.itknecht.de/sugras/meles/internal/schedule"
 	"git.itknecht.de/sugras/meles/internal/source"
 	"git.itknecht.de/sugras/meles/internal/store"
@@ -135,11 +137,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			refresh = 5
 		}
 	}
+	var cluster *clusterCounts
+	if s.cluster != nil {
+		// The dashboard works without the cluster's reports.
+		if reps, err := s.cluster.List(ctx); err == nil {
+			c := countReports(reps)
+			cluster = &c
+		}
+	}
 	s.render(w, http.StatusOK, "dashboard", page{Title: "Dashboard", Nav: "dashboard", Refresh: refresh, Data: map[string]any{
 		"Stats":     stats,
 		"Recent":    recent,
 		"Attention": attention,
 		"Upcoming":  next,
+		"Cluster":   cluster,
 	}})
 }
 
@@ -466,4 +477,84 @@ func (s *Server) handleFindingsCSV(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	cw.Flush()
+}
+
+// --- cluster (MalwareReports of the operator) ---
+
+var errNoCluster = fmt.Errorf("the reports of the meles operator are not enabled (meles server --cluster-reports): %w", store.ErrNotFound)
+
+func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
+	if s.cluster == nil {
+		s.renderError(w, http.StatusNotFound, errNoCluster)
+		return
+	}
+	reps, err := s.cluster.List(r.Context())
+	if err != nil {
+		s.renderError(w, errStatus(err), err)
+		return
+	}
+	q := r.URL.Query()
+	f := clusterFilter{Status: q.Get("status"), Namespace: q.Get("namespace"), Query: strings.TrimSpace(q.Get("q"))}
+	var shown []v1alpha1.MalwareReport
+	for i := range reps {
+		if f.match(&reps[i]) {
+			shown = append(shown, reps[i])
+		}
+	}
+	sortReports(shown)
+	s.render(w, http.StatusOK, "cluster", page{Title: "Cluster", Nav: "cluster", Data: map[string]any{
+		"Reports":    shown,
+		"Counts":     countReports(reps),
+		"Filter":     f,
+		"Statuses":   clusterStatuses,
+		"Namespaces": namespaces(reps),
+	}})
+}
+
+func (s *Server) handleClusterReport(w http.ResponseWriter, r *http.Request) {
+	if s.cluster == nil {
+		s.renderError(w, http.StatusNotFound, errNoCluster)
+		return
+	}
+	rep, err := s.cluster.Get(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	if err != nil {
+		s.renderError(w, errStatus(err), err)
+		return
+	}
+	refresh := 0
+	if rescanPending(rep) {
+		refresh = 10
+	}
+	s.render(w, http.StatusOK, "cluster_report", page{Title: rep.Report.Workload.Name, Nav: "cluster", Refresh: refresh, Data: map[string]any{
+		"Report": rep,
+		"Rescan": s.rescan,
+	}})
+}
+
+func (s *Server) handleClusterRescan(w http.ResponseWriter, r *http.Request) {
+	if s.cluster == nil || !s.rescan {
+		s.renderError(w, http.StatusNotFound, errNoCluster)
+		return
+	}
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	if err := s.cluster.RequestRescan(r.Context(), ns, name); err != nil {
+		s.renderError(w, errStatus(err), err)
+		return
+	}
+	s.log.Info("rescan requested", "namespace", ns, "report", name)
+	http.Redirect(w, r, "/cluster/"+url.PathEscape(ns)+"/"+url.PathEscape(name), http.StatusSeeOther)
+}
+
+func (s *Server) apiClusterReports(w http.ResponseWriter, r *http.Request) {
+	if s.cluster == nil {
+		writeJSONError(w, http.StatusNotFound, errNoCluster)
+		return
+	}
+	reps, err := s.cluster.List(r.Context())
+	if err != nil {
+		writeJSONError(w, errStatus(err), err)
+		return
+	}
+	sortReports(reps)
+	writeJSON(w, http.StatusOK, reps)
 }

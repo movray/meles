@@ -26,13 +26,15 @@ type page struct {
 	Engine  EngineStatus
 	Version string
 	Queue   int
+	// Cluster shows the navigation entry for the operator's reports.
+	Cluster bool
 	// Refresh reloads the page after this many seconds (0 = never), used
 	// while runs are active.
 	Refresh int
 	Data    any
 }
 
-var pageNames = []string{"dashboard", "scans", "scan_form", "scan", "runs", "run", "reports", "error"}
+var pageNames = []string{"dashboard", "scans", "scan_form", "scan", "runs", "run", "reports", "cluster", "cluster_report", "error"}
 
 func (s *Server) parseTemplates() (map[string]*pageTemplate, error) {
 	out := map[string]*pageTemplate{}
@@ -51,6 +53,7 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, p page) 
 	p.Engine = s.Engine()
 	p.Version = s.version
 	p.Queue = s.runner.QueueLen()
+	p.Cluster = s.cluster != nil
 	var buf bytes.Buffer
 	if err := s.pages[name].t.Execute(&buf, p); err != nil {
 		s.log.Error("render", "page", name, "err", err)
@@ -129,8 +132,10 @@ func (s *Server) funcs() template.FuncMap {
 			}
 			return base + "?" + q.Encode()
 		},
-		"dailyChart": func(days []store.Day) template.HTML { return dailyChart(days, s.loc) },
-		"isDone":     func(r store.Run) bool { return r.Done() },
+		"dailyChart":    func(days []store.Day) template.HTML { return dailyChart(days, s.loc) },
+		"isDone":        func(r store.Run) bool { return r.Done() },
+		"clusterStatus": clusterStatus,
+		"rescanPending": rescanPending,
 	}
 }
 
@@ -146,6 +151,8 @@ func statusLabel(status string) string {
 		return "Running"
 	case store.StatusQueued:
 		return "Queued"
+	case statusIncomplete:
+		return "Incomplete"
 	case scan.StatusPresent:
 		return "Present"
 	case scan.StatusDeleted:
@@ -172,6 +179,8 @@ func statusIcon(status string) string {
 		return "…"
 	case scan.StatusDeleted, scan.StatusOverwritten:
 		return "⚠"
+	case statusIncomplete:
+		return "◐"
 	}
 	return "•"
 }

@@ -10,10 +10,15 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"git.itknecht.de/sugras/meles/api/v1alpha1"
 	"git.itknecht.de/sugras/meles/internal/engine/fake"
 	"git.itknecht.de/sugras/meles/internal/extract"
 	"git.itknecht.de/sugras/meles/internal/runner"
@@ -31,7 +36,8 @@ type env struct {
 	st  *store.Store
 }
 
-func newEnv(t *testing.T) *env {
+// newEnv starts a server; configure, if given, adjusts its Config.
+func newEnv(t *testing.T, configure ...func(*Config)) *env {
 	t.Helper()
 	reg, err := testimage.Serve(testimage.Cases())
 	if err != nil {
@@ -51,7 +57,11 @@ func newEnv(t *testing.T) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	run := runner.New(st, sc, 1, time.Minute, log)
 	sched := schedule.New(st, run, time.UTC, log)
-	s, err := New(Config{Store: st, Runner: run, Scheduler: sched, Engine: eng, Cache: cache, Location: time.UTC, Logger: log, Version: "test"})
+	cfg := Config{Store: st, Runner: run, Scheduler: sched, Engine: eng, Cache: cache, Location: time.UTC, Logger: log, Version: "test"}
+	for _, c := range configure {
+		c(&cfg)
+	}
+	s, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +215,126 @@ func TestUnreachableImageIsError(t *testing.T) {
 	json.Unmarshal([]byte(out), &run)
 	if r := e.waitDone(run.ID); r.Status != store.StatusError || r.Error == "" {
 		t.Errorf("run of missing image = %+v, want error", r)
+	}
+}
+
+// fakeReports holds MalwareReports in memory.
+type fakeReports struct {
+	mu      sync.Mutex
+	reports []v1alpha1.MalwareReport
+}
+
+func (f *fakeReports) List(context.Context) ([]v1alpha1.MalwareReport, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.reports), nil
+}
+
+func (f *fakeReports) Get(_ context.Context, ns, name string) (*v1alpha1.MalwareReport, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.reports {
+		if r.Namespace == ns && r.Name == name {
+			return &r, nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
+func (f *fakeReports) RequestRescan(_ context.Context, ns, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.reports {
+		if r.Namespace == ns && r.Name == name {
+			f.reports[i].Annotations = map[string]string{v1alpha1.AnnotationRescan: "now"}
+			return nil
+		}
+	}
+	return store.ErrNotFound
+}
+
+func malwareReport(ns, workload, status string, findings ...v1alpha1.Finding) v1alpha1.MalwareReport {
+	return v1alpha1.MalwareReport{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "replicaset-" + workload + "-app"},
+		Report: v1alpha1.ReportData{
+			Workload:  v1alpha1.Workload{Kind: "ReplicaSet", Name: workload, Container: "app"},
+			Image:     v1alpha1.Image{Repository: "docker.io/acme/" + workload, Reference: "acme/" + workload + ":1", Digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+			Summary:   v1alpha1.Summary{Status: status, Findings: len(findings), Files: 10},
+			Findings:  findings,
+			ScannedAt: metav1.Now(),
+		},
+	}
+}
+
+func TestClusterReports(t *testing.T) {
+	reports := &fakeReports{reports: []v1alpha1.MalwareReport{
+		malwareReport("shop", "web", v1alpha1.StatusClean),
+		malwareReport("tools", "backup", v1alpha1.StatusIncomplete),
+		malwareReport("shop", "miner", v1alpha1.StatusInfected, v1alpha1.Finding{Platform: "linux/amd64", Layer: 2, Path: "/usr/bin/xmrig", Signature: "Unix.Coinminer.Xmrig", Status: "present"}),
+	}}
+	e := newEnv(t, func(c *Config) { c.Cluster, c.ClusterRescan = reports, true })
+
+	resp, out := e.do("GET", "/cluster", "", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /cluster: %d", resp.StatusCode)
+	}
+	miner, backup, web := strings.Index(out, "shop / miner"), strings.Index(out, "tools / backup"), strings.Index(out, "shop / web")
+	if miner < 0 || backup < miner || web < backup {
+		t.Errorf("not sorted by urgency: miner %d, backup %d, web %d", miner, backup, web)
+	}
+	filtered := map[string][]string{
+		"/cluster?status=incomplete": {"tools / backup"},
+		"/cluster?namespace=shop":    {"shop / miner", "shop / web"},
+		"/cluster?q=acme/web":        {"shop / web"},
+	}
+	for path, want := range filtered {
+		_, out := e.do("GET", path, "", "")
+		for _, w := range []string{"shop / miner", "tools / backup", "shop / web"} {
+			if strings.Contains(out, w) != slices.Contains(want, w) {
+				t.Errorf("GET %s: %q shown = %v", path, w, !slices.Contains(want, w))
+			}
+		}
+	}
+	if _, out := e.do("GET", "/", "", ""); !strings.Contains(out, "Cluster workloads") || !strings.Contains(out, `href="/cluster"`) {
+		t.Error("dashboard without cluster tile or navigation")
+	}
+
+	resp, out = e.do("GET", "/cluster/shop/replicaset-miner-app", "", "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(out, "/usr/bin/xmrig") || !strings.Contains(out, "Unix.Coinminer.Xmrig") || !strings.Contains(out, ">Rescan<") {
+		t.Errorf("report page: %d", resp.StatusCode)
+	}
+	if resp, _ := e.do("GET", "/cluster/shop/missing", "", ""); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("missing report: %d", resp.StatusCode)
+	}
+
+	// Rescan sets the annotation; cross-site posts are rejected.
+	if resp, _ := e.do("POST", "/cluster/shop/replicaset-miner-app/rescan", "", "", "Sec-Fetch-Site", "cross-site"); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-site rescan: %d, want 403", resp.StatusCode)
+	}
+	resp, _ = e.do("POST", "/cluster/shop/replicaset-miner-app/rescan", "", "")
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/cluster/shop/replicaset-miner-app" {
+		t.Errorf("rescan: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if _, out := e.do("GET", "/cluster/shop/replicaset-miner-app", "", ""); !strings.Contains(out, "Rescan requested") {
+		t.Error("pending rescan not shown")
+	}
+
+	resp, out = e.do("GET", "/api/cluster/reports", "", "")
+	var list []v1alpha1.MalwareReport
+	if err := json.Unmarshal([]byte(out), &list); resp.StatusCode != http.StatusOK || err != nil || len(list) != 3 || list[0].Report.Workload.Name != "miner" {
+		t.Errorf("API: %d %v %d reports", resp.StatusCode, err, len(list))
+	}
+}
+
+func TestClusterReportsDisabled(t *testing.T) {
+	e := newEnv(t)
+	for _, path := range []string{"/cluster", "/api/cluster/reports"} {
+		if resp, _ := e.do("GET", path, "", ""); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GET %s without cluster reports: %d", path, resp.StatusCode)
+		}
+	}
+	if _, out := e.do("GET", "/", "", ""); strings.Contains(out, `href="/cluster"`) {
+		t.Error("navigation shows Cluster although disabled")
 	}
 }
 
