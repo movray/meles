@@ -360,6 +360,9 @@ func TestClusterHistory(t *testing.T) {
 	if _, out := e.do("GET", "/cluster", "", ""); !strings.Contains(out, "shop / web") || !strings.Contains(out, "1 h ago") || !strings.Contains(out, "10 min ago") {
 		t.Error("cluster page without Deployment name or status since")
 	}
+	if _, out := e.do("GET", "/cluster?days=7", "", ""); !strings.Contains(out, "Workloads per day") || !strings.Contains(out, "0 clean · 1 infected · 0 errors · 0 incomplete") {
+		t.Error("cluster page without the trend of today")
+	}
 	resp, out := e.do("GET", "/api/cluster/reports/shop/"+cur.Name+"/history", "", "")
 	var events []store.ClusterEvent
 	if err := json.Unmarshal([]byte(out), &events); resp.StatusCode != http.StatusOK || err != nil || len(events) != 4 {

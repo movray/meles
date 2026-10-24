@@ -513,7 +513,16 @@ func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	days := reportDays(r)
+	daily, err := s.store.ClusterDaily(r.Context(), s.clusterName, days, s.loc)
+	if err != nil {
+		s.renderError(w, errStatus(err), err)
+		return
+	}
 	s.render(w, http.StatusOK, "cluster", page{Title: "Cluster", Nav: "cluster", Data: map[string]any{
+		"Days":       days,
+		"DayOptions": []int{7, 30, 90},
+		"Daily":      daily,
 		"Reports":    shown,
 		"Since":      since,
 		"Counts":     countReports(reps),

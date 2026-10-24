@@ -30,6 +30,34 @@
   </div>
 </section>
 
+<section class="card">
+  <div class="card-head">
+    <h2>Workloads per day</h2>
+    <nav class="segmented" aria-label="Period">
+      {{range $d.DayOptions}}<a href="{{query "/cluster" "days" . "status" $d.Filter.Status "namespace" $d.Filter.Namespace "q" $d.Filter.Query}}"{{if eq . $d.Days}} aria-current="true"{{end}}>{{.}} days</a>{{end}}
+    </nav>
+  </div>
+  <p class="sub">Reports by result at the end of each day, from the history the server records (it starts when the server first saw the reports).</p>
+  <ul class="legend" aria-label="Legend">
+    <li><span class="swatch seg-infected" aria-hidden="true"></span>Infected</li>
+    <li><span class="swatch seg-error" aria-hidden="true"></span>Not fully scanned (error or incomplete)</li>
+    <li><span class="swatch seg-clean" aria-hidden="true"></span>Clean</li>
+  </ul>
+  <div class="chart-wrap" data-tooltip-host>
+    {{clusterChart $d.Daily}}
+    <div class="tooltip" role="status" hidden></div>
+  </div>
+  <details class="table-view">
+    <summary>Show as table</summary>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Day</th><th class="num">Clean</th><th class="num">Infected</th><th class="num">Errors</th><th class="num">Incomplete</th></tr></thead>
+      <tbody>{{range $d.Daily}}<tr><td>{{.Date.Format "Mon 2006-01-02"}}</td><td class="num">{{.Clean}}</td><td class="num">{{.Infected}}</td><td class="num">{{.Errors}}</td><td class="num">{{.Incomplete}}</td></tr>{{end}}</tbody>
+    </table>
+    </div>
+  </details>
+</section>
+
 <form class="filter-form" method="get" action="/cluster">
   <nav class="filters" aria-label="Filter by result">
     <a class="chip" href="{{query "/cluster" "namespace" $d.Filter.Namespace "q" $d.Filter.Query}}"{{if not $d.Filter.Status}} aria-current="true"{{end}}>All</a>

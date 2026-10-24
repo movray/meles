@@ -233,3 +233,84 @@ func (s *Store) PruneClusterEvents(ctx context.Context, before time.Time) (int64
 	}
 	return res.RowsAffected()
 }
+
+// ClusterDay counts the cluster's reports by status at the end of a day
+// (for today: now).
+type ClusterDay struct {
+	Date       time.Time `json:"date"`
+	Clean      int       `json:"clean"`
+	Infected   int       `json:"infected"`
+	Incomplete int       `json:"incomplete"`
+	Errors     int       `json:"errors"`
+}
+
+// Total returns the number of reports of the day.
+func (d ClusterDay) Total() int { return d.Clean + d.Infected + d.Incomplete + d.Errors }
+
+// ClusterDaily replays the history to the state at the end of each of the
+// last days days (oldest first) in loc. Days before the history began count
+// nothing.
+func (s *Store) ClusterDaily(ctx context.Context, cluster string, days int, loc *time.Location) ([]ClusterDay, error) {
+	now := time.Now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	first := today.AddDate(0, 0, -(days - 1))
+	out := make([]ClusterDay, days)
+	for i := range out {
+		out[i].Date = first.AddDate(0, 0, i)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `SELECT namespace, report, status, deleted, recorded_at FROM cluster_events
+		WHERE cluster = ? ORDER BY id`, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("cluster daily: %w", err)
+	}
+	defer rows.Close()
+
+	state := map[ClusterReportKey]string{}
+	day := 0
+	// snapshot counts the state into out[day].
+	snapshot := func() {
+		for _, st := range state {
+			switch st {
+			case "Clean":
+				out[day].Clean++
+			case "Infected":
+				out[day].Infected++
+			case "Incomplete":
+				out[day].Incomplete++
+			default:
+				out[day].Errors++
+			}
+		}
+	}
+	for rows.Next() {
+		var k ClusterReportKey
+		var status string
+		var deleted bool
+		var at int64
+		if err := rows.Scan(&k.Namespace, &k.Report, &status, &deleted, &at); err != nil {
+			return nil, fmt.Errorf("cluster daily: %w", err)
+		}
+		t := time.UnixMilli(at)
+		// Close the days that ended before this event.
+		for day < days && !t.Before(out[day].Date.AddDate(0, 0, 1)) {
+			snapshot()
+			day++
+		}
+		if day == days {
+			break
+		}
+		if deleted {
+			delete(state, k)
+		} else {
+			state[k] = status
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cluster daily: %w", err)
+	}
+	for ; day < days; day++ {
+		snapshot()
+	}
+	return out, nil
+}

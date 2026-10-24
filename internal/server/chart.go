@@ -10,30 +10,84 @@ import (
 	"git.itknecht.de/sugras/meles/internal/store"
 )
 
+// stackSeg is one segment of a stacked column: a CSS class for its color
+// and its value.
+type stackSeg struct {
+	cls string
+	v   int
+}
+
+// stackDay is the column of one day, segments from the baseline up.
+type stackDay struct {
+	date time.Time
+	segs []stackSeg
+	tip  string
+}
+
 // dailyChart renders finished runs per day as stacked columns (infected,
-// error, clean from the baseline up) in inline SVG. Colors come from CSS
-// classes so that light and dark mode each use their own tokens. Every
-// column has a hover target with a tooltip; the page also offers the data
-// as a table.
+// error, clean from the baseline up).
 func dailyChart(days []store.Day, loc *time.Location) template.HTML {
+	cols := make([]stackDay, len(days))
+	for i, d := range days {
+		day := d.Date.In(loc)
+		cols[i] = stackDay{
+			date: day,
+			segs: []stackSeg{{"seg-infected", d.Infected}, {"seg-error", d.Errors}, {"seg-clean", d.Clean}},
+			tip:  fmt.Sprintf("%s: %d clean · %d infected · %d errors", day.Format("Mon 02.01.2006"), d.Clean, d.Infected, d.Errors),
+		}
+	}
+	return stackedDays("Finished runs per day by result", cols)
+}
+
+// clusterChart renders the cluster's reports by status at the end of each
+// day. Error and Incomplete share one segment, "not fully scanned": the
+// serious color next to warning fails the palette checks, and both mean the
+// same for the chart (never shown as clean). The tooltip and the table keep
+// them apart.
+func clusterChart(days []store.ClusterDay, loc *time.Location) template.HTML {
+	cols := make([]stackDay, len(days))
+	for i, d := range days {
+		day := d.Date.In(loc)
+		cols[i] = stackDay{
+			date: day,
+			segs: []stackSeg{{"seg-infected", d.Infected}, {"seg-error", d.Errors + d.Incomplete}, {"seg-clean", d.Clean}},
+			tip: fmt.Sprintf("%s: %d clean · %d infected · %d errors · %d incomplete",
+				day.Format("Mon 02.01.2006"), d.Clean, d.Infected, d.Errors, d.Incomplete),
+		}
+	}
+	return stackedDays("Workloads per day by result", cols)
+}
+
+// stackedDays renders stacked columns per day in inline SVG. Colors come
+// from CSS classes so that light and dark mode each use their own tokens.
+// Every column has a hover target with a tooltip; the pages also offer the
+// data as a table.
+func stackedDays(title string, days []stackDay) template.HTML {
 	const (
 		w, h                     = 760.0, 240.0
 		left, right, top, bottom = 40.0, 8.0, 12.0, 28.0
 		gap                      = 2.0 // surface gap between stacked segments
 		radius                   = 4.0
+		// A single infected workload among a hundred clean ones must stay
+		// visible: segments above zero are at least this high (the tooltip
+		// and the table have the exact values).
+		minSeg = 4.0
 	)
 	plotW, plotH := w-left-right, h-top-bottom
 
 	maxTotal := 0
 	for _, d := range days {
-		maxTotal = max(maxTotal, d.Total())
+		total := 0
+		for _, sg := range d.segs {
+			total += sg.v
+		}
+		maxTotal = max(maxTotal, total)
 	}
 	step, yMax := niceScale(maxTotal)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="chart" viewBox="0 0 %.0f %.0f" role="img" aria-labelledby="chart-title" preserveAspectRatio="xMidYMid meet">`, w, h)
-	b.WriteString(`<title id="chart-title">Finished runs per day by result</title>`)
-
+	fmt.Fprintf(&b, `<svg class="chart" viewBox="0 0 %.0f %.0f" role="img" aria-label="%s" preserveAspectRatio="xMidYMid meet">`, w, h, template.HTMLEscapeString(title))
+	fmt.Fprintf(&b, `<title>%s</title>`, template.HTMLEscapeString(title))
 	// Recessive grid and y-axis ticks.
 	for v := 0; v <= yMax; v += step {
 		y := top + plotH - float64(v)/float64(yMax)*plotH
@@ -63,10 +117,7 @@ func dailyChart(days []store.Day, loc *time.Location) template.HTML {
 	for i, d := range days {
 		x := left + float64(i)*band + (band-barW)/2
 		y := top + plotH
-		segs := []struct {
-			cls string
-			v   int
-		}{{"seg-infected", d.Infected}, {"seg-error", d.Errors}, {"seg-clean", d.Clean}}
+		segs := d.segs
 		last := -1
 		for j, sg := range segs {
 			if sg.v > 0 {
@@ -77,7 +128,7 @@ func dailyChart(days []store.Day, loc *time.Location) template.HTML {
 			if sg.v == 0 {
 				continue
 			}
-			sh := float64(sg.v) / float64(yMax) * plotH
+			sh := math.Max(float64(sg.v)/float64(yMax)*plotH, minSeg)
 			y -= sh
 			drawH := sh
 			if j != last {
@@ -93,13 +144,12 @@ func dailyChart(days []store.Day, loc *time.Location) template.HTML {
 			}
 		}
 
-		day := d.Date.In(loc)
 		// Count labels back from today so the newest day is always labeled
 		// and labels never collide.
 		if (n-1-i)%labelEvery == 0 {
-			fmt.Fprintf(&b, `<text class="tick" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, x+barW/2, h-8, day.Format("02.01."))
+			fmt.Fprintf(&b, `<text class="tick" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, x+barW/2, h-8, d.date.Format("02.01."))
 		}
-		tip := fmt.Sprintf("%s: %d clean · %d infected · %d errors", day.Format("Mon 02.01.2006"), d.Clean, d.Infected, d.Errors)
+		tip := d.tip
 		// Hover target larger than the mark: the full band and plot height.
 		fmt.Fprintf(&b, `<rect class="hit" x="%.1f" y="%.1f" width="%.1f" height="%.1f" data-tip="%s"><title>%s</title></rect>`,
 			left+float64(i)*band, top, band, plotH, template.HTMLEscapeString(tip), template.HTMLEscapeString(tip))

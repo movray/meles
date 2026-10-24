@@ -205,3 +205,40 @@ func TestClusterEvents(t *testing.T) {
 		t.Errorf("after pruning: %d events, want the last of web-1 and web-2", len(hist))
 	}
 }
+
+func TestClusterDaily(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	loc := time.UTC
+	now := time.Now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	add := func(day int, report, status string, deleted bool) {
+		at := today.AddDate(0, 0, day).Add(time.Hour)
+		_, err := s.db.ExecContext(ctx, `INSERT INTO cluster_events (namespace, report, grp, workload_kind, workload_name, container, status, deleted, scanned_at, recorded_at, status_since)
+			VALUES ('shop', ?, ?, 'ReplicaSet', ?, 'app', ?, ?, ?, ?, ?)`, report, report, report, status, deleted, unix(at), unix(at), unix(at))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(-5, "old", "Clean", false) // before the period: still counted
+	add(-2, "web", "Clean", false)
+	add(-2, "db", "Infected", false)
+	add(-1, "db", "", true)
+	add(-1, "web", "Incomplete", false)
+	add(0, "api", "Error", false)
+
+	days, err := s.ClusterDaily(ctx, "", 3, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ClusterDay{
+		{Date: today.AddDate(0, 0, -2), Clean: 2, Infected: 1},
+		{Date: today.AddDate(0, 0, -1), Clean: 1, Incomplete: 1},
+		{Date: today, Clean: 1, Incomplete: 1, Errors: 1},
+	}
+	for i := range want {
+		if days[i] != want[i] {
+			t.Errorf("day %d = %+v, want %+v", i, days[i], want[i])
+		}
+	}
+}

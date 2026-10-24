@@ -133,6 +133,7 @@ func (s *Server) funcs() template.FuncMap {
 			return base + "?" + q.Encode()
 		},
 		"dailyChart":    func(days []store.Day) template.HTML { return dailyChart(days, s.loc) },
+		"clusterChart":  func(days []store.ClusterDay) template.HTML { return clusterChart(days, s.loc) },
 		"isDone":        func(r store.Run) bool { return r.Done() },
 		"clusterStatus": clusterStatus,
 		"rescanPending": rescanPending,
@@ -180,7 +181,7 @@ func statusIcon(status string) string {
 	case scan.StatusDeleted, scan.StatusOverwritten:
 		return "⚠"
 	case statusIncomplete:
-		return "◐"
+		return "?"
 	}
 	return "•"
 }
