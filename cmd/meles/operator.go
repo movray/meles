@@ -138,7 +138,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	}
 	sf.register(cmd.Flags())
 	cmd.Flags().StringVar(&platforms, "platform", operator.PlatformsNodes, "platforms to scan: nodes (architectures of the cluster's nodes), all, or a list such as linux/amd64,linux/arm64")
-	cmd.Flags().IntVar(&workers, "workers", 2, "pods reconciled (and images scanned) in parallel; each scan uses --concurrency clamd sessions")
+	cmd.Flags().IntVar(&workers, "workers", 2, "images scanned in parallel, apart from reconciling pods; each scan uses --concurrency clamd sessions")
 	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")
 	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed")
 	cmd.Flags().DurationVar(&retryIncompl, "retry-incomplete-after", 12*time.Hour, "wait before rescanning an image with skipped files (usually clamd limits, see clamd.maxScanSize/maxScanTime in the chart)")

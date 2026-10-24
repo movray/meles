@@ -312,6 +312,45 @@ func TestIgnoreRules(t *testing.T) {
 	})
 }
 
+// A long scan holds one scan worker, not the reconcilers: meanwhile a
+// deleted report comes back. Before, both workers waited for the slow image
+// (one scanning, one for the same digest) and nothing else moved.
+func TestLongScanDoesNotBlock(t *testing.T) {
+	release := make(chan struct{})
+	e := setup(t, func(e *env) {
+		e.engine.Hold, e.engine.Release = []byte(testimage.EICAR()), release
+		e.r.Workers = 2
+	})
+	defer close(release)
+	ns := "shop"
+	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+	clean := e.imageID(t, "clean")
+	e.runPod(t, ns, "before", nil, clean)
+	before := e.report(t, ns, "pod-before-app")
+
+	// Two pods of the same slow image: one scan, both wait.
+	slow := e.imageID(t, "eicar-present")
+	e.runPod(t, ns, "slow-1", nil, slow)
+	e.runPod(t, ns, "slow-2", nil, slow)
+	time.Sleep(time.Second)
+
+	if err := e.c.Delete(context.Background(), before); err != nil {
+		t.Fatal(err)
+	}
+	e.reportWhere(t, ns, "pod-before-app", "back while the slow scan runs", func(r *v1alpha1.MalwareReport) bool { return r.UID != before.UID })
+	var rep v1alpha1.MalwareReport
+	if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "pod-slow-1-app"}, &rep); err == nil {
+		t.Fatal("slow image reported before its scan finished")
+	}
+
+	release <- struct{}{}
+	for _, n := range []string{"pod-slow-1-app", "pod-slow-2-app"} {
+		if got := e.report(t, ns, n).Report.Summary.Status; got != v1alpha1.StatusInfected {
+			t.Errorf("%s: %s", n, got)
+		}
+	}
+}
+
 func TestPrune(t *testing.T) {
 	e := setup(t, nil)
 	ns := "shop"

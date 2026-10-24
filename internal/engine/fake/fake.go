@@ -22,6 +22,10 @@ type Engine struct {
 	Err error
 	// MaxSize, if set, rejects larger streams like clamd's StreamMaxLength.
 	MaxSize int
+	// Hold, if set, makes scans of streams containing it wait until Release
+	// is closed, like a long scan.
+	Hold    []byte
+	Release chan struct{}
 
 	// mu guards Signatures and MaxSize once the engine is in use.
 	mu sync.Mutex
@@ -57,7 +61,7 @@ func (e *Engine) Version(context.Context) (engine.Version, error) {
 
 type session struct{ e *Engine }
 
-func (s session) Scan(_ context.Context, r io.Reader) (string, error) {
+func (s session) Scan(ctx context.Context, r io.Reader) (string, error) {
 	s.e.Scans.Add(1)
 	if s.e.Err != nil {
 		return "", s.e.Err
@@ -65,6 +69,13 @@ func (s session) Scan(_ context.Context, r io.Reader) (string, error) {
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return "", err
+	}
+	if len(s.e.Hold) > 0 && bytes.Contains(b, s.e.Hold) {
+		select {
+		case <-s.e.Release:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 	s.e.mu.Lock()
 	maxSize := s.e.MaxSize

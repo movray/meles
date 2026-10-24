@@ -235,7 +235,8 @@ operator:
   # nodes: the architectures of the cluster's nodes; all; or a list such as
   # linux/amd64,linux/arm64.
   platform: nodes
-  # Pods reconciled (and images scanned) in parallel.
+  # Images scanned in parallel. Pods are reconciled apart from that, so a
+  # long scan does not hold up new pods, deleted reports or rescans.
   workers: 2
   # Parallel clamd sessions per scan.
   concurrency: 4
