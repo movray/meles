@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"unicode"
 
+	"git.itknecht.de/sugras/meles/internal/ignore"
 	"git.itknecht.de/sugras/meles/internal/scan"
 )
 
@@ -52,12 +53,12 @@ func Table(w io.Writer, r *scan.Report) error {
 		return err
 	}
 
-	fs := r.Findings()
+	fs := r.ActiveFindings()
 	switch {
 	case len(fs) == 0 && r.Complete:
 		fmt.Fprintln(w, "\nNo malware found.")
 	case len(fs) == 0:
-		fmt.Fprintf(w, "\nNo malware found in the scanned files. Scan INCOMPLETE: %d files were not scanned (see below).\n", len(r.Skipped()))
+		fmt.Fprintf(w, "\nNo malware found in the scanned files. Scan INCOMPLETE: %d files were not scanned (see below).\n", len(r.ActiveSkipped()))
 	default:
 		fmt.Fprintf(w, "\nFindings (%d):\n", len(fs))
 		tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -70,14 +71,59 @@ func Table(w io.Writer, r *scan.Report) error {
 		}
 	}
 
-	if sk := r.Skipped(); len(sk) > 0 {
+	if sk := r.ActiveSkipped(); len(sk) > 0 {
 		fmt.Fprintf(w, "\nSkipped, not scanned (%d):\n", len(sk))
 		tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "PLATFORM\tLAYER\tPATH\tSIZE\tREASON")
 		for _, s := range sk {
 			fmt.Fprintf(tw, "%s\t%d\t%s\t%d\t%s\n", safe(s.Platform), s.Layer, safe(s.Path), s.Size, safe(s.Reason))
 		}
-		return tw.Flush()
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+	return ignored(w, r)
+}
+
+// ignored lists the entries ignore rules took out of the verdict, and the
+// rules that matched but expired.
+func ignored(w io.Writer, r *scan.Report) error {
+	type row struct {
+		kind, platform, path, what string
+		m                          *ignore.Match
+	}
+	var rows []row
+	for _, f := range r.Findings() {
+		if f.Ignored != nil {
+			rows = append(rows, row{"finding", f.Platform, f.Path, f.Signature, f.Ignored})
+		}
+	}
+	for _, s := range r.Skipped() {
+		if s.Ignored != nil {
+			rows = append(rows, row{"skipped", s.Platform, s.Path, s.Signature, s.Ignored})
+		}
+	}
+	var active, expired []row
+	for _, rw := range rows {
+		if rw.m.Expired {
+			expired = append(expired, rw)
+		} else {
+			active = append(active, rw)
+		}
+	}
+	if len(active) > 0 {
+		fmt.Fprintf(w, "\nIgnored by rules, not counted (%d):\n", len(active))
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "KIND\tPLATFORM\tPATH\tSIGNATURE\tRULE\tEXPIRES\tREASON")
+		for _, rw := range active {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", rw.kind, safe(rw.platform), safe(rw.path), safe(rw.what), safe(rw.m.Rule), rw.m.Expires, safe(truncate(rw.m.Reason, 60)))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+	for _, rw := range expired {
+		fmt.Fprintf(w, "\nNote: ignore rule %s for %s expired on %s; the %s counts again.\n", safe(rw.m.Rule), safe(rw.path), rw.m.Expires, rw.kind)
 	}
 	return nil
 }

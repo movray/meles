@@ -96,9 +96,54 @@ environment variables, which win over defaults.
 | `--max-layer-size` | `4G` | hard limit per layer (uncompressed); exceeding it is an error |
 | `--max-files` | `500000` | hard limit of entries per layer |
 | `--concurrency` | `4` | parallel clamd sessions |
+| `--ignorefile` | | YAML file with ignore rules, see below |
 
 Registry credentials come from the Docker config (`~/.docker/config.json` or
 `$DOCKER_CONFIG`).
+
+### Ignore rules
+
+False positives (a miner detector's test data, a network tool) and files
+the engine cannot scan for a known harmless reason would otherwise turn a
+pipeline red for good. An ignore file lists them, each with a reason and an
+expiry date at most a year ahead:
+
+```yaml
+# meles-ignore.yaml
+rules:
+  - name: php-phar-test-quine
+    # Every php:* image ships the PHP sources. ext/phar/tests/bug81726.gz
+    # unpacks to itself, so clamd stops at MaxRecursion whatever the limit.
+    path: /usr/src/php.tar.xz
+    signature: Heuristics.Limits.Exceeded.MaxRecursion
+    reason: PHP test file bug81726.gz is a gzip that contains itself
+    expires: "2027-06-30"
+  - name: monitor-miner-samples
+    signature: "*.Coinminer.*"
+    image: ghcr.io/acme/monitor
+    path: /opt/monitor/testdata/**
+    reason: detection samples of our miner monitor, reviewed 2026-10
+    expires: "2027-01-31"
+```
+
+```sh
+meles image --ignorefile meles-ignore.yaml nextcloud:33
+```
+
+A rule matches when all of its set fields match; it needs at least one of
+`path`, `signature` and `sha256`. `path` and `signature` are globs (`*` and
+`?` within a path segment, `**` across segments), `image` is a repository
+glob or an image digest `sha256:…`, `sha256` names exactly one file content
+(the JSON output has the hash of every finding and skipped file). Skipped
+files have signatures too: clamd's `Heuristics.Limits.Exceeded.*`, or
+`Meles.Limits.MaxFileSize`, `Meles.Limits.StreamMaxLength` and
+`Meles.Unsupported.TarEntry`.
+
+Ignored entries stay in the report, marked with the rule and its reason;
+they only no longer count for the verdict and the exit code. Once a rule has
+expired, the entry counts again and the report says so. An invalid rule
+(no reason, no date, a date more than a year ahead, an unknown field) fails
+the run. Scan errors can never be ignored.
 
 ### CI
 

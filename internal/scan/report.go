@@ -3,8 +3,11 @@ package scan
 import (
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
+
 	"git.itknecht.de/sugras/meles/internal/engine"
 	"git.itknecht.de/sugras/meles/internal/extract"
+	"git.itknecht.de/sugras/meles/internal/ignore"
 )
 
 // Finding statuses.
@@ -29,9 +32,12 @@ type Report struct {
 	StartedAt  time.Time        `json:"startedAt"`
 	FinishedAt time.Time        `json:"finishedAt"`
 	Platforms  []PlatformReport `json:"platforms"`
-	// Complete is false if any file was skipped. A report without findings
-	// then does not mean the image is clean.
+	// Complete is false if any file was skipped (and not ignored). A report
+	// without findings then does not mean the image is clean.
 	Complete bool `json:"complete"`
+	// IgnoreRules is the number of ignore rules the report was checked
+	// against.
+	IgnoreRules int `json:"ignoreRules,omitempty"`
 }
 
 // PlatformReport is the result for one platform of an image.
@@ -70,6 +76,9 @@ type Finding struct {
 	// HiddenHow is "whiteout", "opaque" or "overwritten".
 	HiddenHow string `json:"hiddenHow,omitempty"`
 	CreatedBy string `json:"createdBy,omitempty"`
+	// Ignored is set if an ignore rule matched: the finding does not count
+	// (unless the rule expired).
+	Ignored *ignore.Match `json:"ignored,omitempty"`
 }
 
 // SkippedFile is a file that was not scanned.
@@ -77,9 +86,64 @@ type SkippedFile struct {
 	Platform string `json:"platform"`
 	Layer    int    `json:"layer"`
 	extract.Skipped
+	// Ignored is set if an ignore rule matched.
+	Ignored *ignore.Match `json:"ignored,omitempty"`
 }
 
-// Findings returns the findings of all platforms.
+// counts reports whether an entry counts for the verdict.
+func counts(m *ignore.Match) bool { return m == nil || m.Expired }
+
+// ApplyIgnore marks the findings and skipped files that rules ignore at now
+// and sets Complete accordingly. Ignored entries stay in the report.
+func (r *Report) ApplyIgnore(rules *ignore.Rules, now time.Time) {
+	r.IgnoreRules = rules.Len()
+	img := ignore.Image{}
+	if ref, err := name.ParseReference(r.Ref); err == nil {
+		img.Repository = ref.Context().Name()
+	}
+	for _, p := range r.Platforms {
+		img.Digests = append(img.Digests, p.Digest)
+	}
+	if r.Digest != "" {
+		img.Digests = append(img.Digests, r.Digest)
+	}
+	for pi := range r.Platforms {
+		p := &r.Platforms[pi]
+		for i := range p.Findings {
+			f := &p.Findings[i]
+			f.Ignored = rules.Find(img, ignore.Entry{Path: f.Path, Signature: f.Signature, SHA256: f.SHA256}, now)
+		}
+		for i := range p.Skipped {
+			s := &p.Skipped[i]
+			s.Ignored = rules.Find(img, ignore.Entry{Path: s.Path, Signature: s.Signature, SHA256: s.SHA256}, now)
+		}
+	}
+	r.Complete = len(r.ActiveSkipped()) == 0
+}
+
+// ActiveFindings returns the findings that count: not ignored.
+func (r *Report) ActiveFindings() []Finding {
+	var out []Finding
+	for _, f := range r.Findings() {
+		if counts(f.Ignored) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ActiveSkipped returns the skipped files that count: not ignored.
+func (r *Report) ActiveSkipped() []SkippedFile {
+	var out []SkippedFile
+	for _, s := range r.Skipped() {
+		if counts(s.Ignored) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Findings returns the findings of all platforms, including ignored ones.
 func (r *Report) Findings() []Finding {
 	var out []Finding
 	for _, p := range r.Platforms {
@@ -88,7 +152,8 @@ func (r *Report) Findings() []Finding {
 	return out
 }
 
-// Skipped returns the skipped files of all platforms.
+// Skipped returns the skipped files of all platforms, including ignored
+// ones.
 func (r *Report) Skipped() []SkippedFile {
 	var out []SkippedFile
 	for _, p := range r.Platforms {
@@ -107,7 +172,7 @@ func (r *Report) Files() int {
 	return n
 }
 
-// Infected reports whether any platform has a finding.
+// Infected reports whether any platform has a finding that is not ignored.
 func (r *Report) Infected() bool {
-	return len(r.Findings()) > 0
+	return len(r.ActiveFindings()) > 0
 }
