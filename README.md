@@ -68,8 +68,11 @@ skipped files, or `2` to treat them as an error.
 limit of `2047M`. Files above 4 MiB are streamed to clamd, so a high limit
 costs no memory in meles; clamd keeps each stream in a temporary file while
 it scans it. clamd's `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` must
-be at least as large (the Helm chart sets them from `scan.maxFileSize`;
-clamd's own default `StreamMaxLength` is only `100M`). Files that clamd
+be at least as large (the Helm chart sets them to at least
+`scan.maxFileSize`; clamd's own default `StreamMaxLength` is only `100M`).
+`MaxFileSize` also limits content clamd unpacks from a file, so the chart
+sets it to `clamd.maxScanSize`: random bytes in a binary can look like an
+archive that claims a gigabyte. Files that clamd
 refuses as too large are reported as skipped. Larger files, such as big ML
 models, cannot be scanned by ClamAV at all.
 
@@ -182,10 +185,11 @@ Important values (see `charts/meles/values.yaml`):
 | Value | Default | |
 |---|---|---|
 | `imagePullSecrets` | `[]` | pull secrets for the meles image |
-| `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` (`MaxScanSize` at least this); at most `2047M` |
-| `clamd.maxScanSize` | `100M` | clamd's `MaxScanSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
+| `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength` (`MaxScanSize`/`MaxFileSize` at least this); at most `2047M` |
+| `clamd.maxScanSize` | `100M` | clamd's `MaxScanSize` and `MaxFileSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
 | `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more. `--clamd-timeout` of the meles clients follows it (plus a minute, at least 5 minutes) |
 | `clamd.maxFiles` | `10000` | clamd's `MaxFiles`: files scanned per archive |
+| `clamd.maxRecursion` | `17` | clamd's `MaxRecursion`: nesting of archives |
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.clusterReports.enabled` | with `operator.enabled` | page "Cluster" with the operator's MalwareReports (ClusterRole: read `malwarereports`) |
 | `server.clusterReports.rescan` | `true` | "Rescan" button in the UI (adds `patch` on `malwarereports`) |

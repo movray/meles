@@ -2,6 +2,8 @@
 {{- $fullname := include "meles.fullname" . }}
 {{- $fileSize := include "meles.bytes" .Values.scan.maxFileSize | atoi }}
 {{- $scanWait := add (div (.Values.clamd.maxScanTime | int) 1000) 60 }}
+{{- /* At least the file size, or large files would only be reported as Heuristics.Limits.Exceeded. */}}
+{{- $scanSize := max (include "meles.bytes" .Values.clamd.maxScanSize | atoi) $fileSize }}
 {{- if gt $fileSize 2147483647 }}
 {{- fail "scan.maxFileSize: ClamAV cannot scan files larger than 2G minus 1 byte, use at most 2047M" }}
 {{- end }}
@@ -25,15 +27,21 @@ data:
     TCPAddr 127.0.0.1
     {{- end }}
     LocalSocket /tmp/clamd.sock
-    # meles skips larger files itself and reports them. Sizes in bytes: clamd
-    # does not accept every suffix meles does (25MB, 25MiB).
+    # meles skips larger files itself and reports them; StreamMaxLength
+    # rejects them too. Sizes in bytes: clamd does not accept every suffix
+    # meles does (25MB, 25MiB).
     StreamMaxLength {{ $fileSize }}
-    MaxFileSize {{ $fileSize }}
-    # At least MaxFileSize, or large files would only be reported as
-    # Heuristics.Limits.Exceeded.
-    MaxScanSize {{ max (include "meles.bytes" .Values.clamd.maxScanSize | atoi) $fileSize }}
+    # MaxFileSize also applies to content clamd unpacks from a file. Random
+    # bytes in a binary that look like a ZIP header may claim a size above
+    # scan.maxFileSize (seen: 1 GiB in an 80 MB Go binary); with
+    # MaxFileSize = scan.maxFileSize every such binary would stay
+    # Incomplete. MaxScanSize bounds the work per file anyway. ClamAV cannot
+    # handle files of 2 GiB and more.
+    MaxFileSize {{ min $scanSize 2147483647 }}
+    MaxScanSize {{ $scanSize }}
     MaxScanTime {{ .Values.clamd.maxScanTime | int }}
     MaxFiles {{ .Values.clamd.maxFiles | int }}
+    MaxRecursion {{ .Values.clamd.maxRecursion | int }}
     # Answer Heuristics.Limits.Exceeded.* instead of a silent OK when a file
     # or archive exceeds a limit; meles lists such files as skipped.
     AlertExceedsMax yes
