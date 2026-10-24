@@ -239,6 +239,9 @@ operator:
   # Rescan images when the signature database changed, at most this often
   # per image (each rescan pulls the image again); 0 disables.
   rescanInterval: 24h
+  # Delete reports of ReplicaSets, StatefulSets and DaemonSets without pods
+  # (e.g. old ReplicaSets of a Deployment) this often; 0 disables.
+  pruneInterval: 30m
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:

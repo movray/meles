@@ -201,6 +201,7 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.platform` | `nodes` | `nodes` (architectures of the cluster's nodes), `all`, or a list |
 | `operator.retryAfter` | `1h` | retry of failed scans |
 | `operator.retryIncompleteAfter` | `12h` | rescan of images with skipped files |
+| `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
 
 ### Operator
@@ -230,6 +231,9 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
   rescanned when
   the signature database changed, at most once per `operator.rescanInterval`
   (24h; each rescan pulls the image again).
+- Reports of ReplicaSets, StatefulSets and DaemonSets without pods, such as
+  the old ReplicaSets a Deployment keeps for rollbacks, are deleted every
+  `operator.pruneInterval`. A CronJob keeps its report between runs.
 - A deleted report is written again right away. To rescan an image now,
   e.g. after raising clamd's limits, annotate one of its reports; all
   reports of the image get the new result:

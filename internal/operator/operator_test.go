@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -245,6 +246,62 @@ func TestOperator(t *testing.T) {
 	again := e.reportWhere(t, ns, "replicaset-web-1-app", "written again", func(r *v1alpha1.MalwareReport) bool { return r.UID != rep.UID })
 	if again.Report.Summary.Status != v1alpha1.StatusInfected || e.engine.Scans.Load() != scans {
 		t.Errorf("report written again = %+v after %d engine scans", again.Report, e.engine.Scans.Load()-scans)
+	}
+}
+
+func TestPrune(t *testing.T) {
+	e := setup(t, nil)
+	ns := "shop"
+	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+	clean := e.imageID(t, "clean")
+	old, current := replicaSet(ns, "web-1"), replicaSet(ns, "web-2")
+	e.create(t, old)
+	e.create(t, current)
+	e.runPod(t, ns, "web-1-a", old, clean)
+	e.runPod(t, ns, "web-2-a", current, clean)
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "backup"},
+		Spec: batchv1.CronJobSpec{Schedule: "@daily", JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{RestartPolicy: corev1.RestartPolicyNever, Containers: []corev1.Container{{Name: "app", Image: "app:latest"}}}},
+		}}},
+	}
+	e.create(t, cj)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "backup-1", OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(cj, batchv1.SchemeGroupVersion.WithKind("CronJob"))}},
+		Spec:       cj.Spec.JobTemplate.Spec,
+	}
+	e.create(t, job)
+	e.runPod(t, ns, "backup-1-x", job, clean)
+	for _, n := range []string{"replicaset-web-1-app", "replicaset-web-2-app", "cronjob-backup-app"} {
+		e.report(t, ns, n)
+	}
+
+	// The old ReplicaSet and the CronJob lose their pods.
+	for _, p := range []string{"web-1-a", "backup-1-x"} {
+		if err := e.c.Delete(context.Background(), &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: p}}, client.GracePeriodSeconds(0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if err := e.r.prune(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		var rep v1alpha1.MalwareReport
+		err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "replicaset-web-1-app"}, &rep)
+		if apierrors.IsNotFound(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("report of the ReplicaSet without pods not pruned: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	for _, n := range []string{"replicaset-web-2-app", "cronjob-backup-app"} {
+		var rep v1alpha1.MalwareReport
+		if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: n}, &rep); err != nil {
+			t.Errorf("report %s: %v", n, err)
+		}
 	}
 }
 

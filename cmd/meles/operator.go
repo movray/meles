@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
@@ -31,6 +33,7 @@ func newOperatorCmd() *cobra.Command {
 		retryAfter   time.Duration
 		retryIncompl time.Duration
 		rescan       time.Duration
+		prune        time.Duration
 		healthListen string
 		leaderElect  bool
 		leaderNS     string
@@ -46,7 +49,9 @@ in the pod's namespace, one per workload and container, owned by the workload.
 Every digest is scanned once; other workloads with the same image get a copy.
 Reports are rescanned when the signature database changed, at most once per
 --rescan-interval, after --retry-after if the scan failed and after
---retry-incomplete-after if files were skipped.
+--retry-incomplete-after if files were skipped. Every --prune-interval, reports
+of ReplicaSets, StatefulSets and DaemonSets without pods (e.g. old ReplicaSets
+of a Deployment) are deleted.
 
 It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		Args: cobra.NoArgs,
@@ -97,6 +102,18 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 			if err := r.SetupWithManager(mgr); err != nil {
 				return fmt.Errorf("set up controller: %w", err)
 			}
+			if prune > 0 {
+				// Runs only on the leader, once the caches are filled.
+				err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+					if !mgr.GetCache().WaitForCacheSync(ctx) {
+						return nil
+					}
+					return r.RunPrune(ctx, prune)
+				}))
+				if err != nil {
+					return err
+				}
+			}
 			if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
 				return err
 			}
@@ -116,6 +133,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")
 	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed")
 	cmd.Flags().DurationVar(&retryIncompl, "retry-incomplete-after", 12*time.Hour, "wait before rescanning an image with skipped files (usually clamd limits, see clamd.maxScanSize/maxScanTime in the chart)")
+	cmd.Flags().DurationVar(&prune, "prune-interval", 30*time.Minute, "delete reports of ReplicaSets, StatefulSets and DaemonSets without pods this often; 0 disables")
 	cmd.Flags().DurationVar(&rescan, "rescan-interval", 24*time.Hour, "rescan images when the signature database changed, at most this often per image; 0 disables")
 	cmd.Flags().StringVar(&healthListen, "health-listen", ":8081", "listen address of /healthz and /readyz")
 	cmd.Flags().BoolVar(&leaderElect, "leader-elect", true, "use leader election, so that only one replica scans")
