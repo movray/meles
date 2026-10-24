@@ -294,6 +294,35 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
 - Images of private registries cannot be pulled yet (planned: pull secrets of
   the pod), they are reported as `Error`.
 
+Ignore rules (see [Ignore rules](#ignore-rules)) live in two resources:
+`MalwareIgnore` for the reports of its namespace, so that teams manage the
+exceptions for their own workloads, and the cluster-scoped
+`ClusterMalwareIgnore` for administrators. Who may create them is up to
+Kubernetes RBAC. Changed rules apply to the reports right away, without a
+rescan; ignored entries stay in the report, marked with the rule
+(`<object>#<n>` or `<object>/<name>`), and the summary counts them as
+`ignored`. Invalid and expired rules are listed in the object's status:
+
+```yaml
+apiVersion: meles.io/v1alpha1
+kind: ClusterMalwareIgnore
+metadata:
+  name: known-harmless
+spec:
+  rules:
+    - name: php-phar-test-quine
+      path: /usr/src/php.tar.xz
+      signature: Heuristics.Limits.Exceeded.MaxRecursion
+      reason: PHP test file ext/phar/tests/bug81726.gz unpacks to itself
+      expires: "2027-06-30"
+```
+
+```
+$ kubectl get clustermalwareignores
+NAME             RULES   PROBLEMS   AGE
+known-harmless   1                  2m
+```
+
 The web UI shows the reports on the page **Cluster** (filter by result,
 namespace or image; details with findings and skipped files; a "Rescan"
 button) and as JSON under `/api/cluster/reports`. The server reads them

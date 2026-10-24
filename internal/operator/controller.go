@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -141,6 +142,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			UpdateFunc:  func(e event.UpdateEvent) bool { return rescanRequested(e.ObjectNew) },
 			GenericFunc: func(event.GenericEvent) bool { return false },
 		})).
+		// Changed rules apply to the reports right away; status updates of
+		// the ignore objects do not change their generation.
+		Watches(&v1alpha1.MalwareIgnore{}, handler.EnqueueRequestsFromMapFunc(r.podsOfIgnore), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&v1alpha1.ClusterMalwareIgnore{}, handler.EnqueueRequestsFromMapFunc(r.podsOfIgnore), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: max(r.Workers, 1)}).
 		Complete(r)
 }
@@ -228,25 +233,40 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 	parent := parentOf(pod, owner)
 
 	key := client.ObjectKey{Namespace: pod.Namespace, Name: name}
+	now := time.Now()
+	rules, err := r.rulesFor(ctx, pod.Namespace, now)
+	if err != nil {
+		return 0, err
+	}
+	// Reports are evaluated again when the next rule expires.
+	expiry := time.Duration(0)
+	if next := rules.NextExpiry(now); !next.IsZero() {
+		expiry = time.Until(next) + time.Second
+	}
 	var existing v1alpha1.MalwareReport
-	err := r.Client.Get(ctx, key, &existing)
+	err = r.Client.Get(ctx, key, &existing)
 	force := err == nil && rescanRequested(&existing)
 	switch {
 	case apierrors.IsNotFound(err):
 	case err != nil:
 		return 0, fmt.Errorf("get report %s: %w", name, err)
 	case existing.Report.Image.Digest == img.digest && !force:
-		stale, wait, err := r.stale(ctx, resultFromData(existing.Report))
+		cur := resultFromData(existing.Report).withIgnore(rules, img, now)
+		stale, wait, err := r.stale(ctx, cur)
 		if err != nil {
 			return 0, err
 		}
-		if !stale && existing.Report.Workload.Parent == parent {
-			return wait, nil
-		}
 		if !stale {
-			// Only the workload fields changed (reports written before
-			// Parent existed): keep the result.
-			return wait, r.writeReport(ctx, pod, owner, cs, init, img, parent, name, resultFromData(existing.Report))
+			wait = minWait(wait, expiry)
+			// Write only if the rules or the workload fields (reports
+			// written before Parent existed) changed the report.
+			want := existing.Report.DeepCopy()
+			cur.apply(want)
+			want.Workload.Parent = parent
+			if equality.Semantic.DeepEqual(*want, existing.Report) {
+				return wait, nil
+			}
+			return wait, r.writeReport(ctx, pod, owner, cs, init, img, parent, name, cur)
 		}
 	}
 
@@ -261,16 +281,28 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 		}
 	}
 
+	res = res.withIgnore(rules, img, now)
 	if err := r.writeReport(ctx, pod, owner, cs, init, img, parent, name, res); err != nil {
 		return 0, err
 	}
-	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings)
+	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings, "ignored", res.summary.Ignored)
 	stale, wait, err := r.stale(ctx, res)
 	if stale {
 		// Due again already (retry shorter than scan and write).
 		return time.Second, err
 	}
-	return wait, err
+	return minWait(wait, expiry), err
+}
+
+// minWait returns the shorter of two waits, where 0 means none.
+func minWait(a, b time.Duration) time.Duration {
+	switch {
+	case a == 0:
+		return b
+	case b == 0:
+		return a
+	}
+	return min(a, b)
 }
 
 // writeReport creates or updates the report of a container with res.
@@ -449,13 +481,20 @@ func (r *Reconciler) propagate(ctx context.Context, digest string, res result, s
 		if client.ObjectKeyFromObject(rep) == self || d.Image.Digest != digest || (d.PlatformFilter != "" && d.PlatformFilter != res.filter) {
 			continue
 		}
-		res.apply(&rep.Report)
+		now := time.Now()
+		rules, err := r.rulesFor(ctx, rep.Namespace, now)
+		if err != nil {
+			r.log().Warn("ignore rules for report", "namespace", rep.Namespace, "report", rep.Name, "err", err)
+			continue
+		}
+		cur := res.withIgnore(rules, image{repository: d.Image.Repository, digest: digest}, now)
+		cur.apply(&rep.Report)
 		delete(rep.Annotations, v1alpha1.AnnotationRescan)
 		if err := r.Client.Update(ctx, rep); err != nil {
 			r.log().Warn("update report with new result", "namespace", rep.Namespace, "report", rep.Name, "err", err)
 			continue
 		}
-		r.log().Info("report updated", "namespace", rep.Namespace, "report", rep.Name, "status", res.summary.Status, "findings", res.summary.Findings)
+		r.log().Info("report updated", "namespace", rep.Namespace, "report", rep.Name, "status", cur.summary.Status, "findings", cur.summary.Findings, "ignored", cur.summary.Ignored)
 	}
 }
 

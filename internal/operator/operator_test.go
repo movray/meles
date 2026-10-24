@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,11 @@ func setup(t *testing.T, configure func(*env)) *env {
 	}
 	if err := e.r.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
+	}
+	for _, cluster := range []bool{false, true} {
+		if err := (&IgnoreStatusReconciler{Client: mgr.GetClient(), Cluster: cluster}).SetupWithManager(mgr); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -247,6 +253,63 @@ func TestOperator(t *testing.T) {
 	if again.Report.Summary.Status != v1alpha1.StatusInfected || e.engine.Scans.Load() != scans {
 		t.Errorf("report written again = %+v after %d engine scans", again.Report, e.engine.Scans.Load()-scans)
 	}
+}
+
+// The PHP case: an incomplete report becomes clean through a cluster rule,
+// without a rescan, keeps the skipped file marked, and is incomplete again
+// once the rule is gone. Invalid rules are reported in the status.
+func TestIgnoreRules(t *testing.T) {
+	e := setup(t, func(e *env) { e.engine.MaxSize = 1 }) // every file is skipped
+	ns := "shop"
+	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+	e.runPod(t, ns, "app", nil, e.imageID(t, "clean"))
+	if got := e.report(t, ns, "pod-app-app").Report; got.Summary.Status != v1alpha1.StatusIncomplete || len(got.Skipped) != 1 || got.Skipped[0].Signature == "" || got.Skipped[0].SHA256 == "" {
+		t.Fatalf("report = %+v", got)
+	}
+	scans := e.engine.Scans.Load()
+
+	expires := time.Now().AddDate(0, 6, 0).Format("2006-01-02")
+	rules := &v1alpha1.ClusterMalwareIgnore{
+		ObjectMeta: metav1.ObjectMeta{Name: "known"},
+		Spec: v1alpha1.IgnoreSpec{Rules: []v1alpha1.IgnoreRule{
+			{Name: "hello", Path: "/etc/hello.txt", Reason: "test file", Expires: expires},
+			{Path: "/never", Reason: "too long", Expires: time.Now().AddDate(2, 0, 0).Format("2006-01-02")},
+		}},
+	}
+	e.create(t, rules)
+	clean := e.reportWhere(t, ns, "pod-app-app", "clean by the rule", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.Summary.Status == v1alpha1.StatusClean
+	})
+	s := clean.Report.Summary
+	if s.Skipped != 0 || s.IgnoredSkipped != 1 || s.Ignored != 1 || clean.Report.Skipped[0].Ignored == nil || clean.Report.Skipped[0].Ignored.Rule != "known/hello" {
+		t.Errorf("summary %+v, skipped %+v", s, clean.Report.Skipped)
+	}
+	if n := e.engine.Scans.Load(); n != scans {
+		t.Errorf("rescanned for a rule change: %d engine scans", n-scans)
+	}
+
+	// The invalid rule is not in effect, and the status says why.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		var got v1alpha1.ClusterMalwareIgnore
+		if err := e.c.Get(context.Background(), client.ObjectKey{Name: "known"}, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status.Rules == 1 && len(got.Status.Problems) == 1 && strings.Contains(got.Status.Problems[0], "more than a year ahead") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status = %+v", got.Status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if err := e.c.Delete(context.Background(), rules); err != nil {
+		t.Fatal(err)
+	}
+	e.reportWhere(t, ns, "pod-app-app", "incomplete again", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.Summary.Status == v1alpha1.StatusIncomplete && r.Report.Summary.Ignored == 0 && r.Report.Skipped[0].Ignored == nil
+	})
 }
 
 func TestPrune(t *testing.T) {

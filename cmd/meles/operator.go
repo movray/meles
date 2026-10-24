@@ -53,6 +53,10 @@ Reports are rescanned when the signature database changed, at most once per
 of ReplicaSets, StatefulSets and DaemonSets without pods (e.g. old ReplicaSets
 of a Deployment) are deleted.
 
+MalwareIgnores (per namespace) and ClusterMalwareIgnores hold ignore rules;
+matching entries stay in the report, marked, but no longer count for its
+status. Changed rules apply without a rescan.
+
 It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -101,6 +105,11 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 			}
 			if err := r.SetupWithManager(mgr); err != nil {
 				return fmt.Errorf("set up controller: %w", err)
+			}
+			for _, cluster := range []bool{false, true} {
+				if err := (&operator.IgnoreStatusReconciler{Client: mgr.GetClient(), Cluster: cluster}).SetupWithManager(mgr); err != nil {
+					return fmt.Errorf("set up ignore controller: %w", err)
+				}
 			}
 			if prune > 0 {
 				// Runs only on the leader, once the caches are filled.
