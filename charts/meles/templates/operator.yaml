@@ -34,6 +34,14 @@ rules:
   - apiGroups: [meles.io]
     resources: [malwareignores/status, clustermalwareignores/status]
     verbs: [update, patch]
+  {{- if .Values.operator.pullSecrets.enabled }}
+  # Pull private images with the pods' imagePullSecrets: get single secrets
+  # and service accounts, no list or watch, so that the operator neither
+  # sees all secrets nor keeps them in memory.
+  - apiGroups: [""]
+    resources: [secrets, serviceaccounts]
+    verbs: [get]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -123,6 +131,10 @@ spec:
             - {name: MELES_RETRY_AFTER, value: {{ .Values.operator.retryAfter | quote }}}
             - {name: MELES_RETRY_INCOMPLETE_AFTER, value: {{ .Values.operator.retryIncompleteAfter | quote }}}
             - {name: MELES_PRUNE_INTERVAL, value: {{ .Values.operator.pruneInterval | quote }}}
+            - {name: MELES_PULL_SECRETS, value: {{ .Values.operator.pullSecrets.enabled | quote }}}
+            {{- if .Values.operator.registryAuthSecret }}
+            - {name: DOCKER_CONFIG, value: /docker}
+            {{- end }}
             - {name: MELES_RESCAN_INTERVAL, value: {{ .Values.operator.rescanInterval | quote }}}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
             {{- with .Values.operator.extraEnv }}
@@ -144,8 +156,18 @@ spec:
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
             {{- include "meles.clamdClientMounts" . | nindent 12 }}
+            {{- if .Values.operator.registryAuthSecret }}
+            - {name: docker-config, mountPath: /docker, readOnly: true}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
         {{- include "meles.clamdClientVolumes" . | nindent 8 }}
+        {{- if .Values.operator.registryAuthSecret }}
+        - name: docker-config
+          secret:
+            secretName: {{ .Values.operator.registryAuthSecret }}
+            items:
+              - {key: .dockerconfigjson, path: config.json}
+        {{- end }}
 {{- end }}

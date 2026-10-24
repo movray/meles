@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -70,6 +72,27 @@ func Cases() []Case {
 type Registry struct {
 	srv  *httptest.Server
 	Host string
+	// auth holds "user:password" once RequireAuth was called.
+	auth atomic.Pointer[[2]string]
+}
+
+// RequireAuth makes the registry refuse requests without these basic auth
+// credentials, like a private registry. Push before calling it.
+func (r *Registry) RequireAuth(user, password string) {
+	r.auth.Store(&[2]string{user, password})
+}
+
+func (r *Registry) checkAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if want := r.auth.Load(); want != nil {
+			if u, p, ok := req.BasicAuth(); !ok || u != want[0] || p != want[1] {
+				w.Header().Set("WWW-Authenticate", `Basic realm="testimage"`)
+				http.Error(w, `{"errors":[{"code":"UNAUTHORIZED","message":"authentication required"}]}`, http.StatusUnauthorized)
+				return
+			}
+		}
+		next.ServeHTTP(w, req)
+	})
 }
 
 // Close stops the registry.
@@ -83,8 +106,9 @@ func (r *Registry) Ref(name string) string {
 // Serve starts an in-memory registry and pushes the given cases to it.
 // References must be parsed with name.Insecure (plain HTTP).
 func Serve(cases []Case) (*Registry, error) {
-	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
-	reg := &Registry{srv: srv, Host: strings.TrimPrefix(srv.URL, "http://")}
+	reg := &Registry{}
+	reg.srv = httptest.NewServer(reg.checkAuth(registry.New(registry.Logger(log.New(io.Discard, "", 0)))))
+	reg.Host = strings.TrimPrefix(reg.srv.URL, "http://")
 	for _, c := range cases {
 		img, err := Build(c.Layers)
 		if err != nil {

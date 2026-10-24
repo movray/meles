@@ -249,6 +249,16 @@ operator:
   # Rescan images when the signature database changed, at most this often
   # per image (each rescan pulls the image again); 0 disables.
   rescanInterval: 24h
+  # Pull private images with the imagePullSecrets of the pods that run them
+  # and of their service accounts, as the kubelet does. Off by default: it
+  # needs get on secrets and serviceaccounts in all namespaces. Without it,
+  # private images are reported as Error, never as Clean.
+  pullSecrets:
+    enabled: false
+  # Secret of type kubernetes.io/dockerconfigjson the operator always uses,
+  # e.g. one Docker Hub account against its rate limit, or a mirror; needs
+  # no permission on other secrets.
+  registryAuthSecret: ""
   # Delete reports of ReplicaSets, StatefulSets and DaemonSets without pods
   # (e.g. old ReplicaSets of a Deployment) this often; 0 disables.
   pruneInterval: 30m

@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,8 +80,9 @@ func setup(t *testing.T, configure func(*env)) *env {
 			Engine: e.engine, Limits: extract.Limits{MaxFileSize: 1 << 20}, Concurrency: 2,
 			Source: source.Options{Insecure: true},
 		},
-		Engine:  e.engine,
-		Version: "test", Platforms: "all", Workers: 2,
+		Engine:    e.engine,
+		APIReader: mgr.GetAPIReader(),
+		Version:   "test", Platforms: "all", Workers: 2,
 		ScanTimeout: time.Minute, RetryAfter: time.Hour, RetryIncompleteAfter: time.Hour, RescanInterval: 24 * time.Hour,
 	}
 	if configure != nil {
@@ -129,11 +131,15 @@ func (e *env) create(t *testing.T, obj client.Object) {
 
 // runPod creates a pod owned by owner (nil: none) and sets the status the
 // kubelet would report once its single container "app" runs imageID.
-func (e *env) runPod(t *testing.T, ns, podName string, owner client.Object, imageID string) {
+// configure, if given, adjusts the pod before it is created.
+func (e *env) runPod(t *testing.T, ns, podName string, owner client.Object, imageID string, configure ...func(*corev1.Pod)) {
 	t.Helper()
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: podName},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "app:latest"}}},
+	}
+	for _, c := range configure {
+		c(pod)
 	}
 	if owner != nil {
 		gvk, err := e.c.GroupVersionKindFor(owner)
@@ -348,6 +354,34 @@ func TestLongScanDoesNotBlock(t *testing.T) {
 		if got := e.report(t, ns, n).Report.Summary.Status; got != v1alpha1.StatusInfected {
 			t.Errorf("%s: %s", n, got)
 		}
+	}
+}
+
+// With PullSecrets the operator pulls private images with the pod's
+// imagePullSecrets; a pod without them ends as Error, never Clean.
+func TestPullSecrets(t *testing.T) {
+	e := setup(t, func(e *env) { e.r.PullSecrets = true })
+	// The kubelet reports the digests; resolve them before the registry
+	// wants credentials.
+	evil, clean := e.imageID(t, "eicar-present"), e.imageID(t, "clean")
+	e.reg.RequireAuth("ci", "s3cret")
+	ns := "shop"
+	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+	auth := base64.StdEncoding.EncodeToString([]byte("ci:s3cret"))
+	e.create(t, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "registry"},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{"` + e.reg.Host + `":{"auth":"` + auth + `"}}}`)},
+	})
+	e.runPod(t, ns, "private", nil, evil, func(p *corev1.Pod) {
+		p.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "registry"}}
+	})
+	if got := e.report(t, ns, "pod-private-app").Report; got.Summary.Status != v1alpha1.StatusInfected {
+		t.Errorf("with pull secret: %+v", got.Summary)
+	}
+	e.runPod(t, ns, "anonymous", nil, clean)
+	if got := e.report(t, ns, "pod-anonymous-app").Report; got.Summary.Status != v1alpha1.StatusError || !strings.Contains(got.Error, "UNAUTHORIZED") {
+		t.Errorf("without pull secret: %+v %q", got.Summary, got.Error)
 	}
 }
 

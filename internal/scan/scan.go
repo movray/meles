@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"golang.org/x/sync/errgroup"
 
@@ -83,10 +84,19 @@ type scanJob struct {
 	done   chan error
 }
 
+// Option changes a single scan.
+type Option func(*source.Options)
+
+// WithKeychain pulls the image with kc instead of the Scanner's keychain,
+// e.g. with the pull secrets of the pods that run it.
+func WithKeychain(kc authn.Keychain) Option {
+	return func(o *source.Options) { o.Keychain = kc }
+}
+
 // Scan scans the platforms of ref selected by platforms. Progress is
 // optional. An error means the image was not fully scanned; it must never be
 // treated as clean.
-func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.PlatformFilter, progress func(Progress)) (*Report, error) {
+func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.PlatformFilter, progress func(Progress), opts ...Option) (*Report, error) {
 	log := s.Logger
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -97,9 +107,12 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 	if err != nil {
 		return nil, fmt.Errorf("engine version: %w", err)
 	}
-	opts := s.Source
-	opts.Platforms = platforms
-	img, err := source.Fetch(ctx, ref, opts)
+	so := s.Source
+	so.Platforms = platforms
+	for _, o := range opts {
+		o(&so)
+	}
+	img, err := source.Fetch(ctx, ref, so)
 	if err != nil {
 		return nil, err
 	}

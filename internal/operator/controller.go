@@ -41,7 +41,7 @@ import (
 
 // ImageScanner scans one image reference; *scan.Scanner implements it.
 type ImageScanner interface {
-	Scan(ctx context.Context, ref string, platforms source.PlatformFilter, progress func(scan.Progress)) (*scan.Report, error)
+	Scan(ctx context.Context, ref string, platforms source.PlatformFilter, progress func(scan.Progress), opts ...scan.Option) (*scan.Report, error)
 }
 
 // EngineVersioner reports the current engine and signature version;
@@ -69,6 +69,13 @@ type Reconciler struct {
 	Platforms string
 	// Workers is the number of images scanned in parallel.
 	Workers int
+	// PullSecrets pulls images with the imagePullSecrets of the pods that
+	// run them and of their service accounts. It needs get on secrets and
+	// serviceaccounts in all namespaces; without, such images end as Error.
+	PullSecrets bool
+	// APIReader reads secrets and service accounts uncached, so that the
+	// operator neither lists nor keeps all secrets of the cluster.
+	APIReader client.Reader
 	// ScanTimeout bounds a single image scan.
 	ScanTimeout time.Duration
 	// RetryAfter is the wait before an image whose scan failed is retried.
