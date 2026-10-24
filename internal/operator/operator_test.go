@@ -17,6 +17,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -38,8 +39,9 @@ type env struct {
 }
 
 // setup needs the envtest binaries (make test-envtest); without
-// KUBEBUILDER_ASSETS the test is skipped.
-func setup(t *testing.T) *env {
+// KUBEBUILDER_ASSETS the test is skipped. configure, if set, adjusts the
+// reconciler and engine before the operator starts.
+func setup(t *testing.T, configure func(*env)) *env {
 	t.Helper()
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set; run make test-envtest")
@@ -54,7 +56,12 @@ func setup(t *testing.T) *env {
 	scheme := runtime.NewScheme()
 	clientgoscheme.AddToScheme(scheme)
 	v1alpha1.AddToScheme(scheme)
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
+	// Every test starts its own manager with the same controller.
+	skipNameValidation := true
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
+		Controller: config.Controller{SkipNameValidation: &skipNameValidation},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +77,12 @@ func setup(t *testing.T) *env {
 			Engine: e.engine, Limits: extract.Limits{MaxFileSize: 1 << 20}, Concurrency: 2,
 			Source: source.Options{Insecure: true},
 		},
+		Engine:  e.engine,
 		Version: "test", Platforms: "all", Workers: 2,
-		ScanTimeout: time.Minute, RetryAfter: time.Hour,
+		ScanTimeout: time.Minute, RetryAfter: time.Hour, RescanInterval: 24 * time.Hour,
+	}
+	if configure != nil {
+		configure(e)
 	}
 	if err := e.r.SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
@@ -134,15 +145,21 @@ func (e *env) runPod(t *testing.T, ns, podName string, owner client.Object, imag
 // report waits for a report to appear.
 func (e *env) report(t *testing.T, ns, reportName string) *v1alpha1.MalwareReport {
 	t.Helper()
+	return e.reportWhere(t, ns, reportName, "", func(*v1alpha1.MalwareReport) bool { return true })
+}
+
+// reportWhere waits for a report that satisfies ok.
+func (e *env) reportWhere(t *testing.T, ns, reportName, what string, ok func(*v1alpha1.MalwareReport) bool) *v1alpha1.MalwareReport {
+	t.Helper()
 	var rep v1alpha1.MalwareReport
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: reportName}, &rep)
-		if err == nil {
+		if err == nil && ok(&rep) {
 			return &rep
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("report %s/%s: %v", ns, reportName, err)
+			t.Fatalf("report %s/%s %s: %v, last %+v", ns, reportName, what, err, rep.Report)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -163,7 +180,7 @@ func replicaSet(ns, rsName string) *appsv1.ReplicaSet {
 }
 
 func TestOperator(t *testing.T) {
-	e := setup(t)
+	e := setup(t, nil)
 	ns := "shop"
 	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
 
@@ -218,4 +235,52 @@ func TestOperator(t *testing.T) {
 	if got := e.report(t, ns, "pod-imported-app").Report; got.Summary.Status != v1alpha1.StatusError || got.Error == "" {
 		t.Errorf("imported image report = %+v", got)
 	}
+
+	// A deleted report is written again right away, from the remembered
+	// result, without waiting for a pod event.
+	if err := e.c.Delete(context.Background(), rep); err != nil {
+		t.Fatal(err)
+	}
+	scans = e.engine.Scans.Load()
+	again := e.reportWhere(t, ns, "replicaset-web-1-app", "written again", func(r *v1alpha1.MalwareReport) bool { return r.UID != rep.UID })
+	if again.Report.Summary.Status != v1alpha1.StatusInfected || e.engine.Scans.Load() != scans {
+		t.Errorf("report written again = %+v after %d engine scans", again.Report, e.engine.Scans.Load()-scans)
+	}
+}
+
+func TestRescan(t *testing.T) {
+	// clamd rejects every file, as with too small limits.
+	e := setup(t, func(e *env) {
+		e.engine.MaxSize = 1
+		e.r.RetryAfter, e.r.RescanInterval, e.r.versionTTL = 2*time.Second, 2*time.Second, time.Nanosecond
+	})
+	ns := "shop"
+	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+	e.runPod(t, ns, "app", nil, e.imageID(t, "clean"))
+	first := e.report(t, ns, "pod-app-app")
+	if first.Report.Summary.Status != v1alpha1.StatusIncomplete {
+		t.Fatalf("status with too small limits = %s", first.Report.Summary.Status)
+	}
+
+	// Incomplete is retried after RetryAfter: with fixed limits it is clean.
+	e.engine.SetMaxSize(0)
+	clean := e.reportWhere(t, ns, "pod-app-app", "clean after retry", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.Summary.Status == v1alpha1.StatusClean
+	})
+	if clean.Report.Scanner.Signatures != "1" {
+		t.Errorf("signatures = %q", clean.Report.Scanner.Signatures)
+	}
+
+	// Without a database update a clean result is kept past RescanInterval.
+	scans := e.engine.Scans.Load()
+	time.Sleep(5 * time.Second)
+	if n := e.engine.Scans.Load(); n != scans {
+		t.Errorf("rescanned without a database update: %d engine scans", n-scans)
+	}
+
+	// After an update it is rescanned with the new signatures.
+	e.engine.SetSignatures("2")
+	e.reportWhere(t, ns, "pod-app-app", "rescanned", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.Scanner.Signatures == "2" && r.Report.Summary.Status == v1alpha1.StatusClean
+	})
 }

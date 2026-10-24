@@ -193,6 +193,8 @@ Important values (see `charts/meles/values.yaml`):
 | `networkPolicy.serverFrom` | `[]` | restrict access to the UI, e.g. to the ingress controller |
 | `operator.enabled` | `false` | run the operator |
 | `operator.platform` | `nodes` | `nodes` (architectures of the cluster's nodes), `all`, or a list |
+| `operator.retryAfter` | `1h` | retry of failed and incomplete scans |
+| `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
 
 ### Operator
 
@@ -215,6 +217,11 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
 - `Status` is `Clean`, `Infected`, `Incomplete` (files skipped) or `Error`
   (not scanned, e.g. a private registry or an image imported into the node).
   `Error` and `Incomplete` are never clean.
+- `Error` and `Incomplete` are retried after `operator.retryAfter` (1h), for
+  example once clamd's limits were raised. Other results are rescanned when
+  the signature database changed, at most once per `operator.rescanInterval`
+  (24h; each rescan pulls the image again).
+- A deleted report is written again right away.
 - Images of private registries cannot be pulled yet (planned: pull secrets of
   the pod), they are reported as `Error`.
 

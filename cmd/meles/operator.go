@@ -29,6 +29,7 @@ func newOperatorCmd() *cobra.Command {
 		workers      int
 		scanTimeout  time.Duration
 		retryAfter   time.Duration
+		rescan       time.Duration
 		healthListen string
 		leaderElect  bool
 		leaderNS     string
@@ -42,6 +43,8 @@ func newOperatorCmd() *cobra.Command {
 runs, by digest. The result is written as a MalwareReport (meles.io/v1alpha1)
 in the pod's namespace, one per workload and container, owned by the workload.
 Every digest is scanned once; other workloads with the same image get a copy.
+Reports are rescanned when the signature database changed, at most once per
+--rescan-interval, and after --retry-after if the scan failed or was incomplete.
 
 It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		Args: cobra.NoArgs,
@@ -85,9 +88,9 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 				return fmt.Errorf("create manager: %w", err)
 			}
 			r := &operator.Reconciler{
-				Client: mgr.GetClient(), Scanner: sc, Version: version,
+				Client: mgr.GetClient(), Scanner: sc, Engine: sc.Engine, Version: version,
 				Platforms: platforms, Workers: workers,
-				ScanTimeout: scanTimeout, RetryAfter: retryAfter, Logger: log,
+				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RescanInterval: rescan, Logger: log,
 			}
 			if err := r.SetupWithManager(mgr); err != nil {
 				return fmt.Errorf("set up controller: %w", err)
@@ -101,7 +104,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "version", version)
+			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "rescan-interval", rescan, "version", version)
 			return mgr.Start(ctx)
 		},
 	}
@@ -109,7 +112,8 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	cmd.Flags().StringVar(&platforms, "platform", operator.PlatformsNodes, "platforms to scan: nodes (architectures of the cluster's nodes), all, or a list such as linux/amd64,linux/arm64")
 	cmd.Flags().IntVar(&workers, "workers", 2, "pods reconciled (and images scanned) in parallel; each scan uses --concurrency clamd sessions")
 	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")
-	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed")
+	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed or was incomplete")
+	cmd.Flags().DurationVar(&rescan, "rescan-interval", 24*time.Hour, "rescan images when the signature database changed, at most this often per image; 0 disables")
 	cmd.Flags().StringVar(&healthListen, "health-listen", ":8081", "listen address of /healthz and /readyz")
 	cmd.Flags().BoolVar(&leaderElect, "leader-elect", true, "use leader election, so that only one replica scans")
 	cmd.Flags().StringVar(&leaderNS, "leader-election-namespace", "", "namespace of the leader election lease; default: the pod's namespace")

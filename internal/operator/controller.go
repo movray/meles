@@ -1,7 +1,9 @@
 // Package operator scans the images of all pods in the cluster and writes
 // the results as MalwareReports, one per workload and container. Every image
 // digest is scanned once; further workloads with the same image get a copy
-// of the result.
+// of the result. Results are rescanned when the signature database changed
+// (at most once per RescanInterval) and, if the scan failed or was
+// incomplete, after RetryAfter.
 package operator
 
 import (
@@ -23,9 +25,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"git.itknecht.de/sugras/meles/internal/engine"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/source"
 )
@@ -35,6 +40,16 @@ type ImageScanner interface {
 	Scan(ctx context.Context, ref string, platforms source.PlatformFilter, progress func(scan.Progress)) (*scan.Report, error)
 }
 
+// EngineVersioner reports the current engine and signature version;
+// engine.Engine implements it.
+type EngineVersioner interface {
+	Version(ctx context.Context) (engine.Version, error)
+}
+
+// versionTTL is how long the engine version is cached. clamd reloads its
+// database at most every few minutes.
+const versionTTL = 5 * time.Minute
+
 // PlatformsNodes selects the architectures of the cluster's nodes.
 const PlatformsNodes = "nodes"
 
@@ -42,6 +57,8 @@ const PlatformsNodes = "nodes"
 type Reconciler struct {
 	Client  client.Client
 	Scanner ImageScanner
+	// Engine is asked for the signature version, to find outdated reports.
+	Engine EngineVersioner
 	// Version of meles, recorded in the reports.
 	Version string
 	// Platforms is PlatformsNodes, "all" or a list such as "linux/amd64".
@@ -51,9 +68,13 @@ type Reconciler struct {
 	Workers int
 	// ScanTimeout bounds a single image scan.
 	ScanTimeout time.Duration
-	// RetryAfter is the wait before an image whose scan failed is retried.
+	// RetryAfter is the wait before an image whose scan failed or was
+	// incomplete is retried.
 	RetryAfter time.Duration
-	Logger     *slog.Logger
+	// RescanInterval is the minimum age of a result before it is rescanned
+	// because the signature database changed. 0 disables rescans.
+	RescanInterval time.Duration
+	Logger         *slog.Logger
 
 	scans singleflight.Group
 	// results remembers recent scan results by digest and platform filter:
@@ -61,6 +82,12 @@ type Reconciler struct {
 	mu      sync.Mutex
 	results map[string]result
 	order   []string
+
+	verMu sync.Mutex
+	ver   engine.Version
+	verAt time.Time
+	// versionTTL overrides the constant in tests.
+	versionTTL time.Duration
 }
 
 // maxResults bounds the results kept in memory; reports keep them anyway.
@@ -93,7 +120,8 @@ func (r *Reconciler) remember(key string, res result) {
 }
 
 // SetupWithManager registers the reconciler. Pods are reconciled when they
-// are created and whenever the images their containers run change.
+// are created, whenever the images their containers run change, and when a
+// report of their workload is deleted.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("malwarereport").
@@ -103,8 +131,35 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			},
 			DeleteFunc: func(event.DeleteEvent) bool { return false },
 		})).
+		Watches(&v1alpha1.MalwareReport{}, handler.EnqueueRequestsFromMapFunc(r.podsOfReport), builder.WithPredicates(predicate.Funcs{
+			CreateFunc:  func(event.CreateEvent) bool { return false },
+			UpdateFunc:  func(event.UpdateEvent) bool { return false },
+			GenericFunc: func(event.GenericEvent) bool { return false },
+		})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: max(r.Workers, 1)}).
 		Complete(r)
+}
+
+// podsOfReport maps a deleted report to the pods of its workload, so that
+// the report is written again.
+func (r *Reconciler) podsOfReport(ctx context.Context, obj client.Object) []reconcile.Request {
+	owners := obj.GetOwnerReferences()
+	if len(owners) == 0 {
+		return nil
+	}
+	var pods corev1.PodList
+	if err := r.Client.List(ctx, &pods, client.InNamespace(obj.GetNamespace())); err != nil {
+		r.log().Warn("list pods of deleted report", "namespace", obj.GetNamespace(), "report", obj.GetName(), "err", err)
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if owner, err := resolveWorkload(ctx, r.Client, pod); err == nil && owner.UID == owners[0].UID {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(pod)})
+		}
+	}
+	return reqs
 }
 
 func imageIDs(p *corev1.Pod) []string {
@@ -122,6 +177,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// A deleted pod's reports belong to its workload and are garbage
 		// collected with it.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if pod.DeletionTimestamp != nil {
+		// Its workload may be gone already; a report written now would be
+		// garbage collected again, and its deletion would bring us back.
+		return ctrl.Result{}, nil
 	}
 	owner, err := resolveWorkload(ctx, r.Client, &pod)
 	if err != nil {
@@ -151,7 +211,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 // reconcileContainer makes sure the report of one container describes the
-// image it runs. It returns when to look again, for failed scans.
+// image it runs and is not outdated. It returns when to look again.
 func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, cs corev1.ContainerStatus, init bool) (time.Duration, error) {
 	img, pullable := parseImageID(cs.ImageID, cs.Image)
 	name := reportName(owner.Kind, owner.Name, cs.Name)
@@ -163,10 +223,11 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 	case err != nil:
 		return 0, fmt.Errorf("get report %s: %w", name, err)
 	case existing.Report.Image.Digest == img.digest:
-		if existing.Report.Summary.Status != v1alpha1.StatusError {
-			return 0, nil // up to date
+		stale, wait, err := r.stale(ctx, resultFromData(existing.Report))
+		if err != nil {
+			return 0, err
 		}
-		if wait := time.Until(existing.Report.ScannedAt.Add(r.RetryAfter)); wait > 0 {
+		if !stale {
 			return wait, nil
 		}
 	}
@@ -202,14 +263,63 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 		return 0, fmt.Errorf("write report %s: %w", name, err)
 	}
 	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings)
-	if res.summary.Status == v1alpha1.StatusError {
-		return r.RetryAfter, nil
+	stale, wait, err := r.stale(ctx, res)
+	if stale {
+		// Due again already (RetryAfter shorter than scan and write).
+		return time.Second, err
 	}
-	return 0, nil
+	return wait, err
 }
 
-// resultFor returns the scan result of an image: from another report of the
-// same digest and platforms if there is one, otherwise from a new scan.
+// stale reports whether res needs a new scan: a failed or incomplete scan
+// after RetryAfter, any other after RescanInterval if the engine or its
+// signatures changed since. If res is current, wait is when to look again
+// (0: not before the next pod event).
+func (r *Reconciler) stale(ctx context.Context, res result) (stale bool, wait time.Duration, err error) {
+	switch res.summary.Status {
+	case v1alpha1.StatusError, v1alpha1.StatusIncomplete:
+		if wait := time.Until(res.scannedAt.Add(r.RetryAfter)); wait > 0 {
+			return false, wait, nil
+		}
+		return true, 0, nil
+	}
+	if r.RescanInterval <= 0 {
+		return false, 0, nil
+	}
+	if wait := time.Until(res.scannedAt.Add(r.RescanInterval)); wait > 0 {
+		return false, wait, nil
+	}
+	v, err := r.engineVersion(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+	if v.Engine == res.scanner.Engine && v.Signatures == res.scanner.Signatures {
+		return false, r.RescanInterval, nil
+	}
+	return true, 0, nil
+}
+
+// engineVersion returns the engine version, cached for versionTTL.
+func (r *Reconciler) engineVersion(ctx context.Context) (engine.Version, error) {
+	ttl := r.versionTTL
+	if ttl == 0 {
+		ttl = versionTTL
+	}
+	r.verMu.Lock()
+	defer r.verMu.Unlock()
+	if time.Since(r.verAt) < ttl {
+		return r.ver, nil
+	}
+	v, err := r.Engine.Version(ctx)
+	if err != nil {
+		return engine.Version{}, fmt.Errorf("engine version: %w", err)
+	}
+	r.ver, r.verAt = v, time.Now()
+	return v, nil
+}
+
+// resultFor returns the scan result of an image: from another current report
+// of the same digest and platforms if there is one, otherwise from a new scan.
 // Concurrent requests for the same image share one scan.
 func (r *Reconciler) resultFor(ctx context.Context, img image) (result, error) {
 	platforms, err := r.platforms(ctx)
@@ -219,7 +329,13 @@ func (r *Reconciler) resultFor(ctx context.Context, img image) (result, error) {
 	key := img.digest + "|" + platforms
 	v, err, _ := r.scans.Do(key, func() (any, error) {
 		if res, ok := r.remembered(key); ok {
-			return res, nil
+			stale, _, err := r.stale(ctx, res)
+			if err != nil {
+				return result{}, err
+			}
+			if !stale {
+				return res, nil
+			}
 		}
 		if res, ok, err := r.reuse(ctx, img.digest, platforms); err != nil || ok {
 			if ok {
@@ -250,8 +366,8 @@ func (r *Reconciler) resultFor(ctx context.Context, img image) (result, error) {
 	return v.(result), nil
 }
 
-// reuse looks for a report of another workload with the same image, scanned
-// for the same platforms without error.
+// reuse looks for a current report of another workload with the same image,
+// scanned for the same platforms without error.
 func (r *Reconciler) reuse(ctx context.Context, digest, platforms string) (result, bool, error) {
 	var list v1alpha1.MalwareReportList
 	if err := r.Client.List(ctx, &list, client.MatchingLabels{v1alpha1.LabelDigest: digestLabel(digest)}); err != nil {
@@ -259,8 +375,16 @@ func (r *Reconciler) reuse(ctx context.Context, digest, platforms string) (resul
 	}
 	for _, rep := range list.Items {
 		d := rep.Report
-		if d.Image.Digest == digest && d.Summary.Status != v1alpha1.StatusError && d.PlatformFilter == platforms {
-			return resultFromData(d), true, nil
+		if d.Image.Digest != digest || d.Summary.Status == v1alpha1.StatusError || d.PlatformFilter != platforms {
+			continue
+		}
+		res := resultFromData(d)
+		stale, _, err := r.stale(ctx, res)
+		if err != nil {
+			return result{}, false, err
+		}
+		if !stale {
+			return res, true, nil
 		}
 	}
 	return result{}, false, nil

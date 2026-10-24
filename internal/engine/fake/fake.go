@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 
 	"git.itknecht.de/sugras/meles/internal/engine"
@@ -21,6 +22,23 @@ type Engine struct {
 	Err error
 	// MaxSize, if set, rejects larger streams like clamd's StreamMaxLength.
 	MaxSize int
+
+	// mu guards Signatures and MaxSize once the engine is in use.
+	mu sync.Mutex
+}
+
+// SetSignatures changes the signature version, as after a database update.
+func (e *Engine) SetSignatures(sig string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Signatures = sig
+}
+
+// SetMaxSize changes MaxSize, as after a change of clamd's limits.
+func (e *Engine) SetMaxSize(n int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.MaxSize = n
 }
 
 var _ engine.Engine = (*Engine)(nil)
@@ -28,7 +46,9 @@ var _ engine.Engine = (*Engine)(nil)
 func (e *Engine) Open(context.Context) (engine.Session, error) { return session{e}, nil }
 
 func (e *Engine) Version(context.Context) (engine.Version, error) {
+	e.mu.Lock()
 	sig := e.Signatures
+	e.mu.Unlock()
 	if sig == "" {
 		sig = "1"
 	}
@@ -46,7 +66,10 @@ func (s session) Scan(_ context.Context, r io.Reader) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s.e.MaxSize > 0 && len(b) > s.e.MaxSize {
+	s.e.mu.Lock()
+	maxSize := s.e.MaxSize
+	s.e.mu.Unlock()
+	if maxSize > 0 && len(b) > maxSize {
 		return "", fmt.Errorf("fake: size limit exceeded: %w", engine.ErrTooLarge)
 	}
 	if bytes.Contains(b, []byte(testimage.EICAR())) {

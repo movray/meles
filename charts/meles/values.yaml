@@ -212,8 +212,11 @@ operator:
   workers: 2
   # Parallel clamd sessions per scan.
   concurrency: 4
-  # Wait before retrying an image whose scan failed.
+  # Wait before retrying an image whose scan failed or was incomplete.
   retryAfter: 1h
+  # Rescan images when the signature database changed, at most this often
+  # per image (each rescan pulls the image again); 0 disables.
+  rescanInterval: 24h
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:
