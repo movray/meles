@@ -184,6 +184,7 @@ Important values (see `charts/meles/values.yaml`):
 | `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength`/`MaxFileSize` (`MaxScanSize` at least this); at most `2047M` |
 | `clamd.maxScanSize` | `100M` | clamd's `MaxScanSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
 | `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more |
+| `clamd.maxFiles` | `10000` | clamd's `MaxFiles`: files scanned per archive |
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |

@@ -117,6 +117,10 @@ clamd:
   # Large compressed archives such as php.tar.xz can need more; files beyond
   # it are skipped (Heuristics.Limits.Exceeded.MaxScanTime).
   maxScanTime: 120000
+  # Maximum number of files scanned in an archive (clamd default 10000).
+  # Source tarballs can have more (e.g. php.tar.xz in the Nextcloud image);
+  # beyond it the archive is skipped (Heuristics.Limits.Exceeded.MaxFiles).
+  maxFiles: 10000
   maxThreads: 12
   # clamd has no authentication of its own. With auth enabled, clamd listens
   # only on 127.0.0.1 and the sidecar "meles clamd-proxy" accepts clients
