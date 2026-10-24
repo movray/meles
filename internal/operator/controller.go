@@ -225,6 +225,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, cs corev1.ContainerStatus, init bool) (time.Duration, error) {
 	img, pullable := parseImageID(cs.ImageID, cs.Image)
 	name := reportName(owner.Kind, owner.Name, cs.Name)
+	parent := parentOf(pod, owner)
 
 	key := client.ObjectKey{Namespace: pod.Namespace, Name: name}
 	var existing v1alpha1.MalwareReport
@@ -239,8 +240,13 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 		if err != nil {
 			return 0, err
 		}
-		if !stale {
+		if !stale && existing.Report.Workload.Parent == parent {
 			return wait, nil
+		}
+		if !stale {
+			// Only the workload fields changed (reports written before
+			// Parent existed): keep the result.
+			return wait, r.writeReport(ctx, pod, owner, cs, init, img, parent, name, resultFromData(existing.Report))
 		}
 	}
 
@@ -255,8 +261,22 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 		}
 	}
 
+	if err := r.writeReport(ctx, pod, owner, cs, init, img, parent, name, res); err != nil {
+		return 0, err
+	}
+	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings)
+	stale, wait, err := r.stale(ctx, res)
+	if stale {
+		// Due again already (retry shorter than scan and write).
+		return time.Second, err
+	}
+	return wait, err
+}
+
+// writeReport creates or updates the report of a container with res.
+func (r *Reconciler) writeReport(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, cs corev1.ContainerStatus, init bool, img image, parent, name string, res result) error {
 	rep := &v1alpha1.MalwareReport{ObjectMeta: metav1.ObjectMeta{Namespace: pod.Namespace, Name: name}}
-	_, err = ctrl.CreateOrUpdate(ctx, r.Client, rep, func() error {
+	_, err := ctrl.CreateOrUpdate(ctx, r.Client, rep, func() error {
 		if rep.Labels == nil {
 			rep.Labels = map[string]string{}
 		}
@@ -267,21 +287,15 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 		rep.Labels[v1alpha1.LabelContainer] = labelValue(cs.Name)
 		rep.Labels[v1alpha1.LabelDigest] = digestLabel(img.digest)
 		rep.OwnerReferences = []metav1.OwnerReference{owner}
-		rep.Report.Workload = v1alpha1.Workload{Kind: owner.Kind, Name: owner.Name, Container: cs.Name, InitContainer: init}
+		rep.Report.Workload = v1alpha1.Workload{Kind: owner.Kind, Name: owner.Name, Parent: parent, Container: cs.Name, InitContainer: init}
 		rep.Report.Image = v1alpha1.Image{Repository: img.repository, Reference: img.reference, Digest: img.digest}
 		res.apply(&rep.Report)
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("write report %s: %w", name, err)
+		return fmt.Errorf("write report %s: %w", name, err)
 	}
-	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings)
-	stale, wait, err := r.stale(ctx, res)
-	if stale {
-		// Due again already (retry shorter than scan and write).
-		return time.Second, err
-	}
-	return wait, err
+	return nil
 }
 
 // stale reports whether res needs a new scan: a failed scan after

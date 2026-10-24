@@ -43,6 +43,17 @@ func resolveWorkload(ctx context.Context, c client.Reader, pod *corev1.Pod) (met
 	return ownerRef(ctrl.APIVersion, ctrl.Kind, ctrl.Name, ctrl.UID), nil
 }
 
+// parentOf returns the Deployment of a ReplicaSet owner: the ReplicaSet's
+// name without the pod-template-hash the pod carries. Empty for other owners
+// and ReplicaSets not named like that (not created by a Deployment).
+func parentOf(pod *corev1.Pod, owner metav1.OwnerReference) string {
+	hash := pod.Labels["pod-template-hash"]
+	if owner.Kind != "ReplicaSet" || hash == "" || !strings.HasSuffix(owner.Name, "-"+hash) {
+		return ""
+	}
+	return strings.TrimSuffix(owner.Name, "-"+hash)
+}
+
 func ownerRef(apiVersion, kind, name string, uid types.UID) metav1.OwnerReference {
 	return metav1.OwnerReference{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid}
 }

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -53,5 +55,26 @@ func TestDigestLabel(t *testing.T) {
 	got := digestLabel("sha256:" + strings.Repeat("ab", 32))
 	if len(got) != 40 || len(validation.IsValidLabelValue(got)) > 0 {
 		t.Errorf("digestLabel = %q", got)
+	}
+}
+
+func TestParentOf(t *testing.T) {
+	tests := []struct {
+		kind, owner, hash, want string
+	}{
+		{"ReplicaSet", "web-5d8f7c9b4", "5d8f7c9b4", "web"},
+		{"ReplicaSet", "argo-cd-server-7bffcbd8b7", "7bffcbd8b7", "argo-cd-server"},
+		{"ReplicaSet", "standalone", "", ""},
+		{"ReplicaSet", "web-abc", "5d8f7c9b4", ""},
+		{"StatefulSet", "db-5d8f7c9b4", "5d8f7c9b4", ""},
+	}
+	for _, tt := range tests {
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}}}
+		if tt.hash != "" {
+			pod.Labels["pod-template-hash"] = tt.hash
+		}
+		if got := parentOf(pod, metav1.OwnerReference{Kind: tt.kind, Name: tt.owner}); got != tt.want {
+			t.Errorf("parentOf(%s %s, hash %q) = %q, want %q", tt.kind, tt.owner, tt.hash, got, tt.want)
+		}
 	}
 }
