@@ -165,7 +165,8 @@ func TestClusterEvents(t *testing.T) {
 		stored    bool
 		wantSince time.Time
 	}{
-		{ev("web-1", "Clean", t0), true, t0},
+		{&ClusterEvent{Namespace: "shop", Report: "web-1", Group: "ReplicaSet/web-1/app", Digest: "sha256:1", Status: "Clean", ScannedAt: t0}, true, t0},
+		{ev("web-1", "Clean", t0), false, t0},                 // Deployment now known: moved to its group
 		{ev("web-1", "Clean", t0), false, t0},                 // seen again after a restart
 		{ev("web-1", "Clean", t0.Add(time.Hour)), true, t0},   // rescan, still clean
 		{ev("web-2", "Clean", t0.Add(2*time.Hour)), true, t0}, // rollout: new ReplicaSet, same group

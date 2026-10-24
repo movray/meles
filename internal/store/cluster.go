@@ -100,8 +100,10 @@ func lastClusterEvent(ctx context.Context, tx *sql.Tx, where string, args ...any
 
 // RecordClusterEvent stores e unless it repeats the last event of the
 // report: the same scan (status, digest, scan time), or a second deletion.
-// Reports seen again after a restart therefore add nothing. It sets e.ID and
-// e.StatusSince and reports whether e was stored.
+// Reports seen again after a restart therefore add nothing. If the group of
+// the report changed (e.g. its Deployment became known), its earlier events
+// move to the new group. It sets e.ID and e.StatusSince and reports whether
+// e was stored.
 func (s *Store) RecordClusterEvent(ctx context.Context, e *ClusterEvent) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -112,6 +114,15 @@ func (s *Store) RecordClusterEvent(ctx context.Context, e *ClusterEvent) (bool, 
 	last, err := lastClusterEvent(ctx, tx, `cluster = ? AND namespace = ? AND report = ?`, e.Cluster, e.Namespace, e.Report)
 	if err != nil {
 		return false, fmt.Errorf("last event of %s/%s: %w", e.Namespace, e.Report, err)
+	}
+	if last != nil && last.Group != e.Group && !e.Deleted {
+		if _, err := tx.ExecContext(ctx, `UPDATE cluster_events SET grp = ? WHERE cluster = ? AND namespace = ? AND report = ?`,
+			e.Group, e.Cluster, e.Namespace, e.Report); err != nil {
+			return false, fmt.Errorf("move events of %s/%s to %s: %w", e.Namespace, e.Report, e.Group, err)
+		}
+		if !last.Deleted && last.Status == e.Status && last.Digest == e.Digest && last.ScannedAt.Equal(e.ScannedAt) {
+			return false, tx.Commit()
+		}
 	}
 	switch {
 	case e.Deleted && (last == nil || last.Deleted):
