@@ -42,6 +42,9 @@ server:
     enabled: null
     # "Rescan" button: sets the meles.io/rescan annotation (adds patch).
     rescan: true
+    # Every change of a report is recorded in the server's database; events
+    # older than this are deleted (the last one of each report is kept).
+    historyDays: 365
   persistence:
     # SQLite database (WAL mode); the server therefore runs with exactly one
     # replica. Use a local or block storage class, not NFS: SQLite's WAL

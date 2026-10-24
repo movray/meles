@@ -52,18 +52,19 @@
   {{if $d.Reports}}
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Result</th><th>Workload</th><th>Image</th><th class="num">Findings</th><th class="num">Skipped</th><th>Scanned</th></tr></thead>
+    <thead><tr><th>Result</th><th>Workload</th><th>Image</th><th class="num">Findings</th><th class="num">Skipped</th><th>Since</th><th>Scanned</th></tr></thead>
     <tbody>
     {{range $d.Reports}}{{$r := .Report}}
     <tr>
       <td><a class="row-link" href="/cluster/{{.Namespace}}/{{.Name}}">{{template "badge" (clusterStatus $r.Summary.Status)}}</a>{{if rescanPending .}}<div class="sub">rescan requested</div>{{end}}</td>
       <td class="ref">
-        <a href="/cluster/{{.Namespace}}/{{.Name}}">{{.Namespace}} / {{$r.Workload.Name}}</a>
-        <div class="sub">{{$r.Workload.Kind}} · {{if $r.Workload.InitContainer}}init container{{else}}container{{end}} <code>{{$r.Workload.Container}}</code></div>
+        <a href="/cluster/{{.Namespace}}/{{.Name}}">{{.Namespace}} / {{or $r.Workload.Parent $r.Workload.Name}}</a>
+        <div class="sub">{{if $r.Workload.Parent}}Deployment{{else}}{{$r.Workload.Kind}}{{end}} · {{if $r.Workload.InitContainer}}init container{{else}}container{{end}} <code>{{$r.Workload.Container}}</code></div>
       </td>
       <td class="ref"><code>{{or $r.Image.Reference $r.Image.Repository}}</code><div class="sub"><code title="{{$r.Image.Digest}}">{{short $r.Image.Digest}}</code></div></td>
       <td class="num">{{if $r.Summary.Findings}}<strong class="ink-critical">{{$r.Summary.Findings}}</strong>{{else}}0{{end}}</td>
       <td class="num">{{$r.Summary.Skipped}}</td>
+      <td>{{$since := index $d.Since (printf "%s/%s" .Namespace .Name)}}{{if $since.IsZero}}–{{else}}<span title="{{time $since}}">{{ago $since}}</span>{{end}}</td>
       <td><span title="{{time $r.ScannedAt.Time}}">{{ago $r.ScannedAt.Time}}</span></td>
     </tr>
     {{end}}

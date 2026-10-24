@@ -113,6 +113,7 @@ spec:
             {{- if include "meles.clusterReports" . }}
             - {name: MELES_CLUSTER_REPORTS, value: "true"}
             - {name: MELES_CLUSTER_RESCAN, value: {{ .Values.server.clusterReports.rescan | quote }}}
+            - {name: MELES_HISTORY_DAYS, value: {{ .Values.server.clusterReports.historyDays | quote }}}
             {{- end }}
             {{- if .Values.server.registryAuthSecret }}
             - {name: DOCKER_CONFIG, value: /docker}

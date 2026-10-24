@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -60,6 +61,35 @@ func NewKubeReports(cfg *rest.Config) (*KubeReports, error) {
 		return nil, fmt.Errorf("informer for MalwareReports: %w", err)
 	}
 	return &KubeReports{cache: c, client: cl}, nil
+}
+
+// OnChange calls fn for every report added, changed or deleted, including
+// all existing reports once the cache starts.
+func (k *KubeReports) OnChange(ctx context.Context, fn func(rep *v1alpha1.MalwareReport, deleted bool)) error {
+	inf, err := k.cache.GetInformer(ctx, &v1alpha1.MalwareReport{})
+	if err != nil {
+		return fmt.Errorf("informer for MalwareReports: %w", err)
+	}
+	_, err = inf.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj any) { notify(obj, false, fn) },
+		UpdateFunc: func(_, obj any) { notify(obj, false, fn) },
+		DeleteFunc: func(obj any) { notify(obj, true, fn) },
+	})
+	return err
+}
+
+func notify(obj any, deleted bool, fn func(*v1alpha1.MalwareReport, bool)) {
+	if t, ok := obj.(toolscache.DeletedFinalStateUnknown); ok {
+		obj = t.Obj
+	}
+	if rep, ok := obj.(*v1alpha1.MalwareReport); ok {
+		fn(rep, deleted)
+	}
+}
+
+// WaitSynced blocks until the reports were read once, or ctx is canceled.
+func (k *KubeReports) WaitSynced(ctx context.Context) bool {
+	return k.cache.WaitForCacheSync(ctx)
 }
 
 // Start runs the cache until ctx is canceled.

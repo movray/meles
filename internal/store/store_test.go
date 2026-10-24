@@ -151,3 +151,56 @@ func TestRunLifecycle(t *testing.T) {
 		t.Errorf("Findings = %+v, %v", rows, err)
 	}
 }
+
+func TestClusterEvents(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	t0 := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	ev := func(report, status string, scanned time.Time) *ClusterEvent {
+		return &ClusterEvent{Namespace: "shop", Report: report, Group: "Deployment/web/app", WorkloadKind: "ReplicaSet", WorkloadName: report,
+			Container: "app", Digest: "sha256:1", Status: status, ScannedAt: scanned}
+	}
+	steps := []struct {
+		e         *ClusterEvent
+		stored    bool
+		wantSince time.Time
+	}{
+		{ev("web-1", "Clean", t0), true, t0},
+		{ev("web-1", "Clean", t0), false, t0},                 // seen again after a restart
+		{ev("web-1", "Clean", t0.Add(time.Hour)), true, t0},   // rescan, still clean
+		{ev("web-2", "Clean", t0.Add(2*time.Hour)), true, t0}, // rollout: new ReplicaSet, same group
+		{&ClusterEvent{Namespace: "shop", Report: "web-1", Group: "Deployment/web/app", Deleted: true, ScannedAt: t0}, true, t0},
+		{&ClusterEvent{Namespace: "shop", Report: "web-1", Group: "Deployment/web/app", Deleted: true, ScannedAt: t0}, false, t0},
+		{ev("web-2", "Infected", t0.Add(3*time.Hour)), true, t0.Add(3 * time.Hour)},
+	}
+	for i, st := range steps {
+		stored, err := s.RecordClusterEvent(ctx, st.e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored != st.stored || (stored && !st.e.StatusSince.Equal(st.wantSince)) {
+			t.Errorf("step %d: stored %v, since %v; want %v, %v", i, stored, st.e.StatusSince, st.stored, st.wantSince)
+		}
+	}
+
+	hist, err := s.ClusterHistory(ctx, "", "shop", "Deployment/web/app", 10)
+	if err != nil || len(hist) != 5 || hist[0].Status != "Infected" || !hist[1].Deleted {
+		t.Errorf("history = %d events, %v", len(hist), err)
+	}
+	since, err := s.ClusterStatusSince(ctx, "")
+	if err != nil || !since[ClusterKey{"shop", "Deployment/web/app"}].Equal(t0.Add(3*time.Hour)) {
+		t.Errorf("status since = %v, %v", since, err)
+	}
+	live, err := s.LiveClusterReports(ctx, "")
+	if _, ok := live[ClusterReportKey{"shop", "web-2"}]; err != nil || len(live) != 1 || !ok {
+		t.Errorf("live reports = %v, %v", live, err)
+	}
+
+	// Pruning keeps the last event of every report.
+	if _, err := s.PruneClusterEvents(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if hist, _ := s.ClusterHistory(ctx, "", "shop", "Deployment/web/app", 10); len(hist) != 2 {
+		t.Errorf("after pruning: %d events, want the last of web-1 and web-2", len(hist))
+	}
+}

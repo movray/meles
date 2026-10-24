@@ -23,16 +23,18 @@ import (
 
 func newServerCmd() *cobra.Command {
 	var (
-		sf         scanFlags
-		listen     string
-		dbPath     string
-		workers    int
-		runTimeout time.Duration
-		timezone   string
-		cacheSize  int
-		cachePaths int
-		cluster    bool
-		rescan     bool
+		sf          scanFlags
+		listen      string
+		dbPath      string
+		workers     int
+		runTimeout  time.Duration
+		timezone    string
+		cacheSize   int
+		cachePaths  int
+		cluster     bool
+		rescan      bool
+		clusterName string
+		historyDays int
 	)
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -41,7 +43,8 @@ func newServerCmd() *cobra.Command {
 cron schedule; every run is stored with its full report in a SQLite database.
 
 With --cluster-reports it also shows the MalwareReports of the meles operator,
-read from the Kubernetes API (KUBECONFIG or, in a pod, its service account).
+read from the Kubernetes API (KUBECONFIG or, in a pod, its service account),
+and records every change in the database as their history.
 
 The UI has no login of its own: expose it only inside the cluster or behind an
 authenticating proxy (e.g. oauth2-proxy).`,
@@ -93,7 +96,7 @@ authenticating proxy (e.g. oauth2-proxy).`,
 				Location: loc, Logger: log, Version: version,
 			}
 			if reports != nil {
-				cfg.Cluster, cfg.ClusterRescan = reports, rescan
+				cfg.Cluster, cfg.ClusterRescan, cfg.ClusterName = reports, rescan, clusterName
 			}
 			srv, err := server.New(cfg)
 			if err != nil {
@@ -104,6 +107,11 @@ authenticating proxy (e.g. oauth2-proxy).`,
 			sched.Start()
 			go srv.WatchEngine(ctx, 30*time.Second)
 			if reports != nil {
+				go func() {
+					if err := srv.RunClusterHistory(ctx, reports, time.Duration(historyDays)*24*time.Hour); err != nil {
+						log.Error("cluster history stopped", "err", err)
+					}
+				}()
 				go func() {
 					if err := reports.Start(ctx); err != nil {
 						log.Error("cluster reports stopped", "err", err)
@@ -142,6 +150,8 @@ authenticating proxy (e.g. oauth2-proxy).`,
 	cmd.Flags().StringVar(&timezone, "timezone", "Local", "time zone for display and schedules without CRON_TZ, e.g. Europe/Berlin")
 	cmd.Flags().IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory")
 	cmd.Flags().BoolVar(&cluster, "cluster-reports", false, "show the MalwareReports of the meles operator (needs get/list/watch on malwarereports.meles.io)")
+	cmd.Flags().StringVar(&clusterName, "cluster-name", "", "with --cluster-reports: name of the cluster in the history (for several clusters later)")
+	cmd.Flags().IntVar(&historyDays, "history-days", 365, "with --cluster-reports: keep the history of the reports this many days (the last event of each report is kept)")
 	cmd.Flags().BoolVar(&rescan, "cluster-rescan", true, "with --cluster-reports: allow requesting a rescan from the UI (needs patch on malwarereports.meles.io)")
 	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd

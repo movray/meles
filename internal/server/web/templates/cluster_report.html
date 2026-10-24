@@ -3,8 +3,8 @@
 <div class="page-head">
   <div>
     <p class="crumb"><a href="/cluster">Cluster</a> / <a href="{{query "/cluster" "namespace" $m.Namespace}}">{{$m.Namespace}}</a> / {{$m.Name}}</p>
-    <h1>{{$r.Workload.Name}}</h1>
-    <p class="sub">{{$r.Workload.Kind}} in <code>{{$m.Namespace}}</code> · {{if $r.Workload.InitContainer}}init container{{else}}container{{end}} <code>{{$r.Workload.Container}}</code></p>
+    <h1>{{or $r.Workload.Parent $r.Workload.Name}}</h1>
+    <p class="sub">{{if $r.Workload.Parent}}Deployment, ReplicaSet <code>{{$r.Workload.Name}}</code>{{else}}{{$r.Workload.Kind}}{{end}} in <code>{{$m.Namespace}}</code> · {{if $r.Workload.InitContainer}}init container{{else}}container{{end}} <code>{{$r.Workload.Container}}</code></p>
   </div>
   {{if .Data.Rescan}}
   <div class="head-actions">
@@ -41,6 +41,36 @@
     <div><dt>Operator</dt><dd>meles {{or $r.Scanner.Version "–"}}</dd></div>
   </dl>
 </section>
+
+{{with .Data.History}}
+<section class="card">
+  <div class="card-head"><h2>History</h2><span class="sub">{{if $r.Workload.Parent}}all ReplicaSets of Deployment <code>{{$r.Workload.Parent}}</code>, {{end}}newest first</span></div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Result</th><th>Scanned</th><th>Image</th><th>Signatures</th><th class="num">Findings</th><th class="num">Skipped</th>{{if $r.Workload.Parent}}<th>ReplicaSet</th>{{end}}</tr></thead>
+    <tbody>
+    {{range .}}
+    <tr>
+      {{if .Deleted}}
+      <td><span class="tag">report deleted</span></td>
+      <td><span title="{{time .RecordedAt}}">{{ago .RecordedAt}}</span></td>
+      <td colspan="4" class="sub">workload removed or without pods</td>
+      {{else}}
+      <td>{{template "badge" (clusterStatus .Status)}}{{if .Error}}<div class="sub clamp" title="{{.Error}}">{{.Error}}</div>{{end}}</td>
+      <td><span title="{{time .ScannedAt}}">{{ago .ScannedAt}}</span></td>
+      <td class="ref"><code>{{or .Reference .Repository}}</code><div class="sub"><code title="{{.Digest}}">{{short .Digest}}</code></div></td>
+      <td>{{or .Signatures "–"}}</td>
+      <td class="num">{{if .Findings}}<strong class="ink-critical">{{.Findings}}</strong>{{else}}0{{end}}</td>
+      <td class="num">{{.Skipped}}</td>
+      {{end}}
+      {{if $r.Workload.Parent}}<td><code>{{.WorkloadName}}</code></td>{{end}}
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
 
 {{if $r.Findings}}
 <section class="card">

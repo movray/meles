@@ -37,6 +37,8 @@ type Server struct {
 	pages     map[string]*pageTemplate
 	cluster   ClusterReports
 	rescan    bool
+	// clusterName tags the history of the cluster's reports.
+	clusterName string
 
 	mu           sync.Mutex
 	engineStatus EngineStatus
@@ -64,21 +66,25 @@ type Config struct {
 	Cluster ClusterReports
 	// ClusterRescan allows requesting a rescan from the UI.
 	ClusterRescan bool
+	// ClusterName tags the history of the cluster's reports, for several
+	// clusters later; empty for one.
+	ClusterName string
 }
 
 // New returns a server.
 func New(c Config) (*Server, error) {
 	s := &Server{
-		store:     c.Store,
-		runner:    c.Runner,
-		scheduler: c.Scheduler,
-		engine:    c.Engine,
-		cache:     c.Cache,
-		loc:       c.Location,
-		log:       c.Logger,
-		version:   c.Version,
-		cluster:   c.Cluster,
-		rescan:    c.ClusterRescan,
+		store:       c.Store,
+		runner:      c.Runner,
+		scheduler:   c.Scheduler,
+		engine:      c.Engine,
+		cache:       c.Cache,
+		loc:         c.Location,
+		log:         c.Logger,
+		version:     c.Version,
+		cluster:     c.Cluster,
+		rescan:      c.ClusterRescan,
+		clusterName: c.ClusterName,
 	}
 	if s.loc == nil {
 		s.loc = time.Local
@@ -170,6 +176,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}", s.apiGetRun)
 	mux.HandleFunc("GET /api/runs/{id}/report", s.handleRunReport)
 	mux.HandleFunc("GET /api/cluster/reports", s.apiClusterReports)
+	mux.HandleFunc("GET /api/cluster/reports/{namespace}/{name}/history", s.apiClusterHistory)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ping(r.Context()); err != nil {

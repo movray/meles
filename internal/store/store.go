@@ -1,5 +1,6 @@
-// Package store keeps configured scans, scan runs and their findings in
-// SQLite (pure Go driver, no CGO).
+// Package store keeps configured scans, scan runs and their findings, and
+// the history of the cluster's MalwareReports in SQLite (pure Go driver, no
+// CGO).
 package store
 
 import (
@@ -148,7 +149,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows one writer; a single connection avoids SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + clusterSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}

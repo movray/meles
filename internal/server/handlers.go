@@ -502,8 +502,20 @@ func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortReports(shown)
+	// Since when each report's status holds, from the history.
+	since := map[string]time.Time{}
+	if bySince, err := s.store.ClusterStatusSince(r.Context(), s.clusterName); err != nil {
+		s.log.Warn("cluster status since", "err", err)
+	} else {
+		for _, rep := range shown {
+			if t, ok := bySince[store.ClusterKey{Namespace: rep.Namespace, Group: historyGroup(rep.Report.Workload)}]; ok {
+				since[rep.Namespace+"/"+rep.Name] = t
+			}
+		}
+	}
 	s.render(w, http.StatusOK, "cluster", page{Title: "Cluster", Nav: "cluster", Data: map[string]any{
 		"Reports":    shown,
+		"Since":      since,
 		"Counts":     countReports(reps),
 		"Filter":     f,
 		"Statuses":   clusterStatuses,
@@ -521,13 +533,19 @@ func (s *Server) handleClusterReport(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, errStatus(err), err)
 		return
 	}
+	hist, err := s.store.ClusterHistory(r.Context(), s.clusterName, rep.Namespace, historyGroup(rep.Report.Workload), historyLimit)
+	if err != nil {
+		s.renderError(w, errStatus(err), err)
+		return
+	}
 	refresh := 0
 	if rescanPending(rep) {
 		refresh = 10
 	}
 	s.render(w, http.StatusOK, "cluster_report", page{Title: rep.Report.Workload.Name, Nav: "cluster", Refresh: refresh, Data: map[string]any{
-		"Report": rep,
-		"Rescan": s.rescan,
+		"Report":  rep,
+		"Rescan":  s.rescan,
+		"History": hist,
 	}})
 }
 
@@ -543,6 +561,27 @@ func (s *Server) handleClusterRescan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("rescan requested", "namespace", ns, "report", name)
 	http.Redirect(w, r, "/cluster/"+url.PathEscape(ns)+"/"+url.PathEscape(name), http.StatusSeeOther)
+}
+
+// historyLimit bounds the events shown and returned per workload.
+const historyLimit = 100
+
+func (s *Server) apiClusterHistory(w http.ResponseWriter, r *http.Request) {
+	if s.cluster == nil {
+		writeJSONError(w, http.StatusNotFound, errNoCluster)
+		return
+	}
+	rep, err := s.cluster.Get(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	if err != nil {
+		writeJSONError(w, errStatus(err), err)
+		return
+	}
+	hist, err := s.store.ClusterHistory(r.Context(), s.clusterName, rep.Namespace, historyGroup(rep.Report.Workload), historyLimit)
+	if err != nil {
+		writeJSONError(w, errStatus(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, hist)
 }
 
 func (s *Server) apiClusterReports(w http.ResponseWriter, r *http.Request) {

@@ -189,6 +189,7 @@ Important values (see `charts/meles/values.yaml`):
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.clusterReports.enabled` | with `operator.enabled` | page "Cluster" with the operator's MalwareReports (ClusterRole: read `malwarereports`) |
 | `server.clusterReports.rescan` | `true` | "Rescan" button in the UI (adds `patch` on `malwarereports`) |
+| `server.clusterReports.historyDays` | `365` | keep the history of the reports this many days |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
 | `clamd.auth.enabled` | `true` | TLS + token in front of clamd (see below) |
@@ -247,8 +248,12 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
 The web UI shows the reports on the page **Cluster** (filter by result,
 namespace or image; details with findings and skipped files; a "Rescan"
 button) and as JSON under `/api/cluster/reports`. The server reads them
-from the Kubernetes API, the reports stay the only source. Everyone who can
-open the UI sees the reports of all namespaces.
+from the Kubernetes API, the reports stay the only source. Every change of a
+report (a new result, a deletion) is also recorded in the server's database:
+the report page shows the history of the workload, across rollouts for the
+ReplicaSets of a Deployment, and the Cluster page since when each status
+holds (JSON: `/api/cluster/reports/<namespace>/<name>/history`). Everyone who
+can open the UI sees the reports of all namespaces.
 
 The CRD is in `charts/meles/crds/`. Helm installs it with the chart but never
 updates or deletes it; after an upgrade apply it again:

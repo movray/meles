@@ -31,6 +31,7 @@ import (
 
 type env struct {
 	t   *testing.T
+	s   *Server
 	srv *httptest.Server
 	reg *testimage.Registry
 	st  *store.Store
@@ -69,7 +70,7 @@ func newEnv(t *testing.T, configure ...func(*Config)) *env {
 	s.checkEngine(ctx)
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); run.Wait() })
-	return &env{t: t, srv: srv, reg: reg, st: st}
+	return &env{t: t, s: s, srv: srv, reg: reg, st: st}
 }
 
 func (e *env) do(method, path, contentType, body string, header ...string) (*http.Response, string) {
@@ -323,6 +324,46 @@ func TestClusterReports(t *testing.T) {
 	var list []v1alpha1.MalwareReport
 	if err := json.Unmarshal([]byte(out), &list); resp.StatusCode != http.StatusOK || err != nil || len(list) != 3 || list[0].Report.Workload.Name != "miner" {
 		t.Errorf("API: %d %v %d reports", resp.StatusCode, err, len(list))
+	}
+}
+
+func TestClusterHistory(t *testing.T) {
+	reports := &fakeReports{}
+	e := newEnv(t, func(c *Config) { c.Cluster = reports })
+	old := malwareReport("shop", "web-5d8f7c", v1alpha1.StatusClean)
+	old.Report.Workload.Parent = "web"
+	old.Report.ScannedAt = metav1.NewTime(time.Now().Add(-48 * time.Hour).Truncate(time.Second))
+	e.s.recordReport(&old, false)
+	e.s.recordReport(&old, false) // seen again after a restart
+
+	// A rollout: the new ReplicaSet runs an infected image, the old one's
+	// report is deleted while the server is down.
+	cur := malwareReport("shop", "web-7c9b4d", v1alpha1.StatusInfected, v1alpha1.Finding{Path: "/usr/bin/xmrig", Signature: "Unix.Coinminer.Xmrig", Status: "present"})
+	cur.Report.Workload.Parent = "web"
+	cur.Report.ScannedAt = metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
+	e.s.recordReport(&cur, false)
+	cur.Report.ScannedAt = metav1.NewTime(time.Now().Add(-10 * time.Minute).Truncate(time.Second)) // rescan, still infected
+	e.s.recordReport(&cur, false)
+	reports.reports = []v1alpha1.MalwareReport{cur}
+	if err := e.s.recordMissedDeletions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	hist, err := e.st.ClusterHistory(context.Background(), "", "shop", "Deployment/web/app", 10)
+	if err != nil || len(hist) != 4 || hist[0].Report != old.Name || !hist[0].Deleted || hist[1].Status != v1alpha1.StatusInfected {
+		t.Fatalf("history = %+v, %v", hist, err)
+	}
+	_, out := e.do("GET", "/cluster/shop/"+cur.Name, "", "")
+	if !strings.Contains(out, "History") || !strings.Contains(out, "report deleted") || !strings.Contains(out, "web-5d8f7c") {
+		t.Error("report page without the history of the Deployment")
+	}
+	if _, out := e.do("GET", "/cluster", "", ""); !strings.Contains(out, "shop / web") || !strings.Contains(out, "1 h ago") || !strings.Contains(out, "10 min ago") {
+		t.Error("cluster page without Deployment name or status since")
+	}
+	resp, out := e.do("GET", "/api/cluster/reports/shop/"+cur.Name+"/history", "", "")
+	var events []store.ClusterEvent
+	if err := json.Unmarshal([]byte(out), &events); resp.StatusCode != http.StatusOK || err != nil || len(events) != 4 {
+		t.Errorf("history API: %d %v %d events", resp.StatusCode, err, len(events))
 	}
 }
 
