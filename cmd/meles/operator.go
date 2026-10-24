@@ -34,7 +34,8 @@ func newOperatorCmd() *cobra.Command {
 		retryIncompl time.Duration
 		rescan       time.Duration
 		prune        time.Duration
-		pullSecrets  bool
+		pullRole     string
+		operatorSA   string
 		healthListen string
 		leaderElect  bool
 		leaderNS     string
@@ -58,8 +59,10 @@ MalwareIgnores (per namespace) and ClusterMalwareIgnores hold ignore rules;
 matching entries stay in the report, marked, but no longer count for its
 status. Changed rules apply without a rescan.
 
-Images are pulled anonymously or with the Docker config (DOCKER_CONFIG); with
---pull-secrets also with the imagePullSecrets of the pods that run them.
+Images are pulled with the imagePullSecrets of the pods that run them and of
+their service accounts, where the operator may read them (a RoleBinding to the
+pull-secret-reader ClusterRole per namespace, or cluster-wide), then with the
+Docker config (DOCKER_CONFIG).
 
 It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		Args: cobra.NoArgs,
@@ -105,7 +108,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 			r := &operator.Reconciler{
 				Client: mgr.GetClient(), Scanner: sc, Engine: sc.Engine, Version: version,
 				Platforms: platforms, Workers: workers,
-				PullSecrets: pullSecrets, APIReader: mgr.GetAPIReader(),
+				APIReader: mgr.GetAPIReader(), PullSecretRole: pullRole, ServiceAccount: operatorSA,
 				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RetryIncompleteAfter: retryIncompl, RescanInterval: rescan, Logger: log,
 			}
 			if err := r.SetupWithManager(mgr); err != nil {
@@ -147,7 +150,8 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")
 	cmd.Flags().DurationVar(&retryAfter, "retry-after", time.Hour, "wait before retrying an image whose scan failed")
 	cmd.Flags().DurationVar(&retryIncompl, "retry-incomplete-after", 12*time.Hour, "wait before rescanning an image with skipped files (usually clamd limits, see clamd.maxScanSize/maxScanTime in the chart)")
-	cmd.Flags().BoolVar(&pullSecrets, "pull-secrets", false, "pull images with the imagePullSecrets of their pods and service accounts (needs get on secrets and serviceaccounts in all namespaces); without, private images end as Error")
+	cmd.Flags().StringVar(&pullRole, "pull-secret-role", "", "ClusterRole that grants reading pull secrets, named in the error of a refused pull")
+	cmd.Flags().StringVar(&operatorSA, "service-account", "", "service account of the operator as namespace:name, named in the error of a refused pull")
 	cmd.Flags().DurationVar(&prune, "prune-interval", 30*time.Minute, "delete reports of ReplicaSets, StatefulSets and DaemonSets without pods this often; 0 disables")
 	cmd.Flags().DurationVar(&rescan, "rescan-interval", 24*time.Hour, "rescan images when the signature database changed, at most this often per image; 0 disables")
 	cmd.Flags().StringVar(&healthListen, "health-listen", ":8081", "listen address of /healthz and /readyz")

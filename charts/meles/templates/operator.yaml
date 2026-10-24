@@ -34,14 +34,41 @@ rules:
   - apiGroups: [meles.io]
     resources: [malwareignores/status, clustermalwareignores/status]
     verbs: [update, patch]
-  {{- if .Values.operator.pullSecrets.enabled }}
-  # Pull private images with the pods' imagePullSecrets: get single secrets
-  # and service accounts, no list or watch, so that the operator neither
-  # sees all secrets nor keeps them in memory.
+---
+# Reading the pull secrets of private images is opt-in per namespace: bind
+# this role to the operator there (see the operator's error for the
+# command), or cluster-wide with operator.pullSecrets.clusterWide. get on
+# single objects only, no list or watch: the operator neither sees all
+# secrets nor keeps them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-pull-secret-reader
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+rules:
   - apiGroups: [""]
     resources: [secrets, serviceaccounts]
     verbs: [get]
-  {{- end }}
+{{- if .Values.operator.pullSecrets.clusterWide }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-pull-secret-reader
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-pull-secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullname }}-operator
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -131,7 +158,8 @@ spec:
             - {name: MELES_RETRY_AFTER, value: {{ .Values.operator.retryAfter | quote }}}
             - {name: MELES_RETRY_INCOMPLETE_AFTER, value: {{ .Values.operator.retryIncompleteAfter | quote }}}
             - {name: MELES_PRUNE_INTERVAL, value: {{ .Values.operator.pruneInterval | quote }}}
-            - {name: MELES_PULL_SECRETS, value: {{ .Values.operator.pullSecrets.enabled | quote }}}
+            - {name: MELES_PULL_SECRET_ROLE, value: {{ printf "%s-pull-secret-reader" $fullname | quote }}}
+            - {name: MELES_SERVICE_ACCOUNT, value: {{ printf "%s:%s-operator" .Release.Namespace $fullname | quote }}}
             {{- if .Values.operator.registryAuthSecret }}
             - {name: DOCKER_CONFIG, value: /docker}
             {{- end }}

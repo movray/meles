@@ -14,10 +14,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -35,6 +37,7 @@ import (
 // env is a real API server and etcd (envtest), the test registry with the
 // EICAR images and a running operator with the fake engine.
 type env struct {
+	cfg    *rest.Config
 	r      *Reconciler
 	c      client.Client
 	reg    *testimage.Registry
@@ -73,7 +76,7 @@ func setup(t *testing.T, configure func(*env)) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(reg.Close)
-	e := &env{c: mgr.GetClient(), reg: reg, engine: &fake.Engine{}}
+	e := &env{cfg: cfg, c: mgr.GetClient(), reg: reg, engine: &fake.Engine{}}
 	e.r = &Reconciler{
 		Client: mgr.GetClient(),
 		Scanner: &scan.Scanner{
@@ -357,10 +360,21 @@ func TestLongScanDoesNotBlock(t *testing.T) {
 	}
 }
 
-// With PullSecrets the operator pulls private images with the pod's
-// imagePullSecrets; a pod without them ends as Error, never Clean.
+// The operator reads a namespace's pull secrets only once it was granted
+// there: without, a private image ends as Error with the command to grant
+// it; with a RoleBinding, it is scanned. RBAC is enforced by impersonating
+// the operator's service account.
 func TestPullSecrets(t *testing.T) {
-	e := setup(t, func(e *env) { e.r.PullSecrets = true })
+	const sa = "system:serviceaccount:meles:meles-operator"
+	e := setup(t, func(e *env) {
+		cfg := rest.CopyConfig(e.cfg)
+		cfg.Impersonate = rest.ImpersonationConfig{UserName: sa}
+		reader, err := client.New(cfg, client.Options{Scheme: e.c.Scheme()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.r.APIReader, e.r.PullSecretRole, e.r.ServiceAccount = reader, "meles-pull-secret-reader", "meles:meles-operator"
+	})
 	// The kubelet reports the digests; resolve them before the registry
 	// wants credentials.
 	evil, clean := e.imageID(t, "eicar-present"), e.imageID(t, "clean")
@@ -376,11 +390,35 @@ func TestPullSecrets(t *testing.T) {
 	e.runPod(t, ns, "private", nil, evil, func(p *corev1.Pod) {
 		p.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "registry"}}
 	})
-	if got := e.report(t, ns, "pod-private-app").Report; got.Summary.Status != v1alpha1.StatusInfected {
-		t.Errorf("with pull secret: %+v", got.Summary)
+	denied := e.reportWhere(t, ns, "pod-private-app", "refused", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.Summary.Status == v1alpha1.StatusError
+	})
+	want := "kubectl -n shop create rolebinding meles-pull-secrets --clusterrole=meles-pull-secret-reader --serviceaccount=meles:meles-operator"
+	if !strings.Contains(denied.Report.Error, "UNAUTHORIZED") || !strings.Contains(denied.Report.Error, want) {
+		t.Errorf("error without the command to grant: %q", denied.Report.Error)
 	}
+
+	// The team grants the operator its pull secrets and asks for a rescan.
+	e.create(t, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "meles-pull-secret-reader"},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"secrets", "serviceaccounts"}, Verbs: []string{"get"}}},
+	})
+	e.create(t, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "meles-pull-secrets"},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "meles-pull-secret-reader"},
+		Subjects:   []rbacv1.Subject{{Kind: "User", Name: sa}},
+	})
+	denied.Annotations = map[string]string{v1alpha1.AnnotationRescan: "1"}
+	if err := e.c.Update(context.Background(), denied); err != nil {
+		t.Fatal(err)
+	}
+	e.reportWhere(t, ns, "pod-private-app", "scanned with the pull secret", func(r *v1alpha1.MalwareReport) bool {
+		return r.Report.Summary.Status == v1alpha1.StatusInfected
+	})
+
+	// A pod without pull secrets: the error says so.
 	e.runPod(t, ns, "anonymous", nil, clean)
-	if got := e.report(t, ns, "pod-anonymous-app").Report; got.Summary.Status != v1alpha1.StatusError || !strings.Contains(got.Error, "UNAUTHORIZED") {
+	if got := e.report(t, ns, "pod-anonymous-app").Report; got.Summary.Status != v1alpha1.StatusError || !strings.Contains(got.Error, "no imagePullSecrets") {
 		t.Errorf("without pull secret: %+v %q", got.Summary, got.Error)
 	}
 }

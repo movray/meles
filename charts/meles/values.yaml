@@ -249,12 +249,14 @@ operator:
   # Rescan images when the signature database changed, at most this often
   # per image (each rescan pulls the image again); 0 disables.
   rescanInterval: 24h
-  # Pull private images with the imagePullSecrets of the pods that run them
-  # and of their service accounts, as the kubelet does. Off by default: it
-  # needs get on secrets and serviceaccounts in all namespaces. Without it,
-  # private images are reported as Error, never as Clean.
+  # Private images are pulled with the imagePullSecrets of the pods that run
+  # them and of their service accounts, where the operator may read them:
+  # per namespace, a RoleBinding to the ClusterRole <release>-pull-secret-
+  # reader (the error of a refused pull names the command). clusterWide
+  # binds it in all namespaces: get on every secret of the cluster.
+  # Without access, private images are reported as Error, never as Clean.
   pullSecrets:
-    enabled: false
+    clusterWide: false
   # Secret of type kubernetes.io/dockerconfigjson the operator always uses,
   # e.g. one Docker Hub account against its rate limit, or a mirror; needs
   # no permission on other secrets.

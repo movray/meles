@@ -69,13 +69,14 @@ type Reconciler struct {
 	Platforms string
 	// Workers is the number of images scanned in parallel.
 	Workers int
-	// PullSecrets pulls images with the imagePullSecrets of the pods that
-	// run them and of their service accounts. It needs get on secrets and
-	// serviceaccounts in all namespaces; without, such images end as Error.
-	PullSecrets bool
-	// APIReader reads secrets and service accounts uncached, so that the
-	// operator neither lists nor keeps all secrets of the cluster.
+	// APIReader reads the pull secrets and service accounts of pods
+	// uncached, so that the operator neither lists nor keeps the cluster's
+	// secrets. It may read them only where it was granted.
 	APIReader client.Reader
+	// PullSecretRole and ServiceAccount ("namespace:name") of the operator
+	// complete the command in the error of a refused pull.
+	PullSecretRole string
+	ServiceAccount string
 	// ScanTimeout bounds a single image scan.
 	ScanTimeout time.Duration
 	// RetryAfter is the wait before an image whose scan failed is retried.

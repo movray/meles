@@ -251,7 +251,7 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.platform` | `nodes` | `nodes` (architectures of the cluster's nodes), `all`, or a list |
 | `operator.retryAfter` | `1h` | retry of failed scans |
 | `operator.retryIncompleteAfter` | `12h` | rescan of images with skipped files |
-| `operator.pullSecrets.enabled` | `false` | pull private images with the pods' `imagePullSecrets` (ClusterRole: `get` on `secrets` and `serviceaccounts`) |
+| `operator.pullSecrets.clusterWide` | `false` | read the pods' `imagePullSecrets` in all namespaces; otherwise per namespace with a RoleBinding (see below) |
 | `operator.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret the operator always uses, e.g. a Docker Hub account |
 | `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
@@ -295,14 +295,25 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
   ```
 - Images of private registries are pulled with the `imagePullSecrets` of the
   pods that run them and of their service accounts, as the kubelet does,
-  once `operator.pullSecrets.enabled` is set. It is off by default because
-  it needs `get` on all secrets of the cluster (no `list` or `watch`; the
-  operator neither sees all secrets nor keeps them). Without it, private
-  images are reported as `Error`, never as `Clean`, and the error says so.
-  `operator.registryAuthSecret` adds one Docker config the operator always
-  uses, e.g. a Docker Hub account against its pull rate limit, without any
-  permission on other secrets. Credentials that exist only on the nodes
-  (kubelet credential providers) are not covered.
+  where the operator may read them. That is opt-in per namespace: the team
+  that owns it binds the ClusterRole `<release>-pull-secret-reader` (`get`
+  on `secrets` and `serviceaccounts`, no `list` or `watch`) to the
+  operator, and nobody has to give it every secret of the cluster:
+
+  ```sh
+  kubectl -n shop create rolebinding meles-pull-secrets \
+    --clusterrole=meles-pull-secret-reader --serviceaccount=meles:meles-operator
+  ```
+
+  A team that wants to expose only its pull secret writes its own Role with
+  `resourceNames`. Until then, private images are reported as `Error`,
+  never as `Clean`, and the error names the command for its namespace.
+  `operator.pullSecrets.clusterWide` binds the role in all namespaces
+  instead. `operator.registryAuthSecret` adds one Docker config the
+  operator always uses, e.g. a Docker Hub account against its pull rate
+  limit or a registry mirror, without any permission on other secrets.
+  Credentials that exist only on the nodes (kubelet credential providers)
+  are not covered.
 
 Ignore rules (see [Ignore rules](#ignore-rules)) live in two resources:
 `MalwareIgnore` for the reports of its namespace, so that teams manage the

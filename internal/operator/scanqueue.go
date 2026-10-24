@@ -131,16 +131,16 @@ func (r *Reconciler) scan(ctx context.Context, img image, platforms string, pods
 	if err != nil {
 		return resultFromError(err, r.Version)
 	}
-	kc, err := r.pullKeychain(ctx, pods)
+	auth, err := r.pullKeychain(ctx, pods)
 	if err != nil {
 		r.log().Warn("scan failed", "image", img.ref, "err", err)
 		return resultFromError(err, r.Version)
 	}
 	start := time.Now()
-	rep, err := r.Scanner.Scan(sctx, img.ref, filter, nil, scan.WithKeychain(kc))
+	rep, err := r.Scanner.Scan(sctx, img.ref, filter, nil, scan.WithKeychain(auth.keychain))
 	if err != nil {
 		r.log().Warn("scan failed", "image", img.ref, "err", err)
-		return resultFromError(errors.New(r.authHint(err)), r.Version)
+		return resultFromError(errors.New(r.authHint(err, auth)), r.Version)
 	}
 	r.log().Info("image scanned", "image", img.ref, "platforms", platforms, "files", rep.Files(), "findings", len(rep.Findings()), "duration", time.Since(start).Round(time.Millisecond))
 	return resultFromReport(rep, platforms, r.Version)
