@@ -2,12 +2,15 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	k8sauth "github.com/google/go-containerregistry/pkg/authn/kubernetes"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -111,9 +114,11 @@ func (r *Reconciler) pullKeychain(ctx context.Context, pods []types.NamespacedNa
 // pull secrets at all.
 func (r *Reconciler) authHint(err error, auth pullAuth) string {
 	msg := err.Error()
-	if !strings.Contains(msg, "UNAUTHORIZED") && !strings.Contains(msg, "DENIED") && !strings.Contains(msg, "TOOMANYREQUESTS") {
+	limited := rateLimited(err)
+	if !limited && !strings.Contains(msg, "UNAUTHORIZED") && !strings.Contains(msg, "DENIED") {
 		return msg
 	}
+	var grant string
 	if len(auth.denied) > 0 {
 		role, sa := r.PullSecretRole, r.ServiceAccount
 		if role == "" {
@@ -126,11 +131,32 @@ func (r *Reconciler) authHint(err error, auth pullAuth) string {
 		for _, ns := range auth.denied {
 			cmds = append(cmds, fmt.Sprintf("kubectl -n %s create rolebinding meles-pull-secrets --clusterrole=%s --serviceaccount=%s", ns, role, sa))
 		}
-		return fmt.Sprintf("%s (the operator may not read the pull secrets of namespace %s; to let it scan private images there: %s)",
-			msg, strings.Join(auth.denied, ", "), strings.Join(cmds, "; "))
+		grant = fmt.Sprintf("the operator may not read the pull secrets of namespace %s; to let it use them: %s",
+			strings.Join(auth.denied, ", "), strings.Join(cmds, "; "))
+	}
+	if limited {
+		// A refused pull secret is not the cause; credentials only raise the limit.
+		hint := "the registry limits pulls and the operator retries later; authenticated pulls usually get a higher limit: put an account for this registry into operator.registryAuthSecret"
+		if grant != "" {
+			hint += ", or if the pods' pull secrets authenticate: " + grant
+		}
+		return msg + " (" + hint + ")"
+	}
+	if grant != "" {
+		return msg + " (" + grant + ")"
 	}
 	if auth.secrets == 0 {
 		return msg + " (no imagePullSecrets on the pods or their service accounts; for a registry they do not cover, set operator.registryAuthSecret)"
 	}
 	return msg
+}
+
+// rateLimited reports whether a registry refused a request for too many
+// pulls (HTTP 429, e.g. Docker Hub's limit for anonymous pulls).
+func rateLimited(err error) bool {
+	var te *transport.Error
+	if errors.As(err, &te) && te.StatusCode == http.StatusTooManyRequests {
+		return true
+	}
+	return strings.Contains(err.Error(), "TOOMANYREQUESTS")
 }
