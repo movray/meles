@@ -190,10 +190,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			UpdateFunc:  func(e event.UpdateEvent) bool { return rescanRequested(e.ObjectNew) },
 			GenericFunc: func(event.GenericEvent) bool { return false },
 		})).
-		// Changed rules apply to the reports right away; status updates of
-		// the ignore objects do not change their generation.
-		Watches(&v1alpha1.MalwareIgnore{}, handler.EnqueueRequestsFromMapFunc(r.podsOfIgnore), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&v1alpha1.ClusterMalwareIgnore{}, handler.EnqueueRequestsFromMapFunc(r.podsOfIgnore), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// Changed rules apply to the reports right away, after the other
+		// events; status updates of the ignore objects do not change their
+		// generation.
+		Watches(&v1alpha1.MalwareIgnore{}, lowPriority(r.podsOfIgnore), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&v1alpha1.ClusterMalwareIgnore{}, lowPriority(r.podsOfIgnore), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// Pods whose scan finished.
 		WatchesRawSource(ctrlsource.Channel(r.events, &handler.EnqueueRequestForObject{})).
 		// Reconciles do not scan, they are short.

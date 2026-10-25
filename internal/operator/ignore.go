@@ -8,8 +8,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
@@ -74,6 +78,43 @@ func (r *Reconciler) podsOfIgnore(ctx context.Context, obj client.Object) []reco
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&pods.Items[i])})
 	}
 	return reqs
+}
+
+// lowPriority enqueues the requests of fn below all other events, as
+// controller-runtime does for the initial list: a changed
+// ClusterMalwareIgnore enqueues every pod of the cluster, and new pods,
+// pods held by the scan gate and finished scans must not wait behind them.
+// The queue keeps the highest priority of an item, so a pod event still
+// lifts a pod that waits here.
+type lowPriority handler.MapFunc
+
+var _ handler.EventHandler = lowPriority(nil)
+
+func (fn lowPriority) enqueue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	reqs := fn(ctx, obj)
+	if pq, ok := q.(priorityqueue.PriorityQueue[reconcile.Request]); ok {
+		pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(handler.LowPriority)}, reqs...)
+		return
+	}
+	for _, req := range reqs {
+		q.Add(req)
+	}
+}
+
+func (fn lowPriority) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	fn.enqueue(ctx, e.Object, q)
+}
+
+func (fn lowPriority) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	fn.enqueue(ctx, e.ObjectNew, q)
+}
+
+func (fn lowPriority) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	fn.enqueue(ctx, e.Object, q)
+}
+
+func (fn lowPriority) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	fn.enqueue(ctx, e.Object, q)
 }
 
 // IgnoreStatusReconciler validates the rules of MalwareIgnores and

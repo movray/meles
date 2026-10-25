@@ -152,6 +152,18 @@ changed rules. Every digest is scanned once; its result is written to all
 reports of that digest. Pods waiting for a running scan are reconciled again
 when it finishes.
 
+Reconciles read from the informer cache only (pods, reports, ignore rules,
+nodes, jobs); only the scan workers reach the registry, clamd and, uncached,
+pull secrets. Some events enqueue many pods at once: the operator's start
+and a changed `ClusterMalwareIgnore` enqueue every pod of the cluster, a
+changed `MalwareIgnore` those of its namespace. They go into
+controller-runtime's priority queue with low priority, so new pods, pods
+held by the scan gate and finished scans go first; a pod is in the queue at
+most once. The periodic resync does not reach the reconciler, since pod
+updates count only when the pod's image IDs change. The API server
+throttles the writes with API Priority and Fairness; the client has no
+limit of its own (controller-runtime's default).
+
 - `Error` is retried after `--retry-after` (1h), `Incomplete` after
   `--retry-incomplete-after` (12h).
 - `Clean` and `Infected` are rescanned when engine or signature version
