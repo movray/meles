@@ -361,6 +361,32 @@ updates or deletes it; after an upgrade apply it again:
 kubectl apply -f charts/meles/crds/
 ```
 
+### Scan gate (planned)
+
+By default meles only reports: a pod runs while its image is scanned, and
+the operator has no permission to change pods. The planned scan gate
+(`operator.gate.enabled`, off by default) lets an administrator hold new
+pods until their image is scanned, per namespace (label
+`meles.io/gate: enforce` or `audit`). A mutating webhook in the operator
+adds the scheduling gate `meles.io/scan` to new pods; the operator scans the
+image, pins the pod to the scanned digest and removes the gate. Infected
+images never start, and a rollout of an infected version leaves the old
+pods running.
+
+**Design decision: a webhook, not a `MutatingAdmissionPolicy`.** Kubernetes
+1.36 can add the gate without a webhook, with a `MutatingAdmissionPolicy`
+evaluated in the API server. It needs no webhook certificate, but it always
+applies: if meles is down, nobody removes the gate, and every new pod in a
+gated namespace waits (updates, scale-ups, CronJobs, replacements after a
+node failure; a rolling update with `maxUnavailable` still stops some old
+pods). That is fail-closed only. The webhook runs inside the operator: if
+the operator is down, so is the webhook, and with `failurePolicy: Ignore`
+(the default) pods start unscanned; `Fail` is available for fail-closed.
+Failures of meles' own infrastructure (clamd unreachable, timeouts) follow
+the same setting; image and registry errors hold the pod. The policy may
+come later as an option for administrators who want fail-closed and no
+webhook certificate.
+
 ### Harbor
 
 With `harborAdapter.enabled=true`, meles runs as a
