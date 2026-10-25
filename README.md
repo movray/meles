@@ -338,7 +338,8 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
   `registries.yaml` of k3s) are not seen either: set the same ones in
   `scan.registryMirrors`, or the operator pulls from the upstream registry
   and spends its pull rate limit, e.g. Docker Hub's for anonymous pulls,
-  which it shares with the kubelet.
+  which it shares with the kubelet (see
+  [Registry rate limits and a pull-through cache](#registry-rate-limits-and-a-pull-through-cache)).
 
 Ignore rules (see [Ignore rules](#ignore-rules)) live in two resources:
 `MalwareIgnore` for the reports of its namespace, so that teams manage the
@@ -511,6 +512,60 @@ Trivy adapter with `harborAdapter.upstream.url` (e.g.
 contains the CVEs and the malware findings, and SBOM requests are passed
 through. Ignore rules go into `harborAdapter.ignoreRules`; Harbor's CVE
 allowlist works on the signature IDs as well.
+
+### Registry rate limits and a pull-through cache
+
+The operator pulls the manifests and layers of every image it scans, and
+again for each rescan. Without credentials it pulls from the same address
+as the nodes, so both share the registry's limit for anonymous pulls
+(Docker Hub: 100 per hour per IP address); a cluster with many Docker Hub
+images runs into `TOOMANYREQUESTS`, in the operator's reports and in the
+kubelet's image pulls. Credentials in `operator.registryAuthSecret` raise
+the limit for meles only. A pull-through cache helps both: every image is
+fetched from Docker Hub once, and later pulls come from the cache.
+
+With Harbor:
+
+1. **Administration → Registries:** a new endpoint of provider *Docker
+   Hub*, anonymous or with an access token (read-only) for a higher limit.
+2. **Projects:** a new project, e.g. `dockerhub`, with *Proxy Cache* on that
+   endpoint. Harbor deletes cached images that were not pulled for 7 days
+   (the project's retention rule); the space is freed only by a garbage
+   collection, so give it a schedule under **Administration → Clean Up**.
+3. **meles:**
+
+   ```yaml
+   scan:
+     registryMirrors:
+       - docker.io=harbor.example.com/dockerhub
+       # Registries that are only other names for Docker Hub need their own entry.
+       - cr.smallstep.com=harbor.example.com/dockerhub
+     registryCA:
+       configMap: my-root-ca   # only if Harbor's certificate is from a private CA
+   ```
+
+4. **Nodes:** the container runtime needs the same mirrors, e.g. in
+   `/etc/rancher/k3s/registries.yaml` on every k3s node (restart `k3s` or
+   `k3s-agent` afterwards; running pods keep running), or in containerd's
+   `hosts.toml` elsewhere:
+
+   ```yaml
+   mirrors:
+     docker.io:
+       endpoint: ["https://harbor.example.com"]
+       rewrite:
+         "^(.*)$": "dockerhub/$1"
+   configs:
+     harbor.example.com:
+       tls:
+         ca_file: /etc/rancher/k3s/my-root-ca.crt
+   ```
+
+meles and containerd both fall back to the registry itself when the mirror
+fails, so an outage of Harbor costs time, not pulls; Harbor's own images
+usually come from Docker Hub as well. meles trusts the mirror for tags and
+checks digests (see `--registry-mirror`), and reports keep the original
+image reference.
 
 ### Login for the web UI
 
