@@ -71,6 +71,10 @@ func (r *Reconciler) reconcileGated(ctx context.Context, pod *corev1.Pod, owner 
 				return ctrl.Result{}, fmt.Errorf("container %s: %w", sc.Name, err)
 			}
 			requeue = minWait(requeue, wait)
+			if !c.pullable {
+				// Resolving is cheap; a tag pushed later releases the pod soon.
+				requeue = minWait(requeue, engineRetry)
+			}
 			if res == nil {
 				pending = true // the finished scan reconciles the pod again
 				continue
@@ -127,7 +131,7 @@ func (r *Reconciler) resolveContainer(ctx context.Context, ref string, auth pull
 	defer cancel()
 	repo, digest, err := source.Resolve(rctx, ref, source.Options{Keychain: auth.keychain, Insecure: r.Insecure})
 	if err != nil {
-		return container{img: image{reference: ref}, unpullable: r.authHint(err, auth), gated: true}
+		return container{img: image{repository: repo, reference: ref}, unpullable: r.authHint(err, auth), gated: true}
 	}
 	return container{img: image{ref: repo + "@" + digest, repository: repo, digest: digest, reference: ref}, pullable: true, gated: true}
 }

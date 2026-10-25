@@ -226,6 +226,17 @@ func imageIDs(p *corev1.Pod) []string {
 
 // Reconcile writes or updates the reports of all containers of a pod.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	res, err := r.reconcile(ctx, req)
+	if apierrors.IsAlreadyExists(err) || apierrors.IsConflict(err) {
+		// Pods of one workload share its reports, and the cache may not show
+		// a report or pod just written: look again, without an error.
+		r.log().Debug("reconcile again", "namespace", req.Namespace, "pod", req.Name, "err", err)
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	return res, err
+}
+
+func (r *Reconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pod corev1.Pod
 	if err := r.Client.Get(ctx, req.NamespacedName, &pod); err != nil {
 		// A deleted pod's reports belong to its workload and are garbage

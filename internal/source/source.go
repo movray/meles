@@ -97,7 +97,8 @@ type Options struct {
 
 // Resolve returns the repository and the digest a reference points to now,
 // without fetching the image: for a tag, the digest of the manifest or index
-// the registry serves, as the kubelet would pull it.
+// the registry serves, as the kubelet would pull it. If only the lookup
+// fails, the repository is returned with the error.
 func Resolve(ctx context.Context, ref string, opts Options) (repository, digest string, err error) {
 	var nopts []name.Option
 	if opts.Insecure {
@@ -124,7 +125,7 @@ func Resolve(ctx context.Context, ref string, opts Options) (repository, digest 
 		// Some registries answer HEAD poorly.
 		d, gerr := remote.Get(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
 		if gerr != nil {
-			return "", "", fmt.Errorf("resolve %s: %w", ref, gerr)
+			return repository, "", fmt.Errorf("resolve %s: %w", ref, gerr)
 		}
 		return repository, d.Digest.String(), nil
 	}
