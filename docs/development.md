@@ -41,6 +41,11 @@ make image-tarball      # build the image into dist/meles.tar, no push
   server and etcd (`KUBEBUILDER_ASSETS`, set by `make test-envtest`;
   Kubernetes version in `ENVTEST_K8S`). Without it these tests are skipped by
   `make test`. CI runs them.
+- **Alert rules**: `make test-rules` renders the chart's PrometheusRule and
+  runs `promtool check rules` and the unit tests in
+  `hack/rules/rules_test.yaml`. CI runs it in its own job with helm and
+  promtool from their releases, pinned by version and sha256 in
+  `.gitea/workflows/ci.yml`; update both there together.
 
 ### EICAR
 
