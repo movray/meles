@@ -195,25 +195,43 @@ non-goal). meles does not talk to the kubelet or the CRI; the price is a
 second pull from the registry (rate limits). A registry mirror or Harbor
 with the adapter avoids it.
 
-### Scan gate (planned)
+### Scan gate
 
 Off by default: meles only reports, and the operator has no permission to
-change pods. Turned on by the administrator (`operator.gate.enabled`):
+change pods. Turned on by the administrator (`operator.gate.enabled`,
+`--gate`):
 
-- A mutating webhook in the operator adds the scheduling gate `meles.io/scan`
-  to new pods in namespaces labelled `meles.io/gate: enforce` or `audit`.
-  Never in `kube-system` or the namespace of meles (clamd would wait for its
-  own scan). A workload opts out with the annotation `meles.io/gate: skip`
-  on its pod template.
-- The operator resolves the tag itself (a gated pod has no `imageID` yet),
-  scans, and in one patch pins the pod's image to the scanned digest and
-  removes the gate. So exactly what was scanned runs, even if the tag moved.
+- A mutating webhook in the operator (`/gate/enforce`, `/gate/audit`, one
+  webhook per mode with its own `namespaceSelector`) adds the scheduling
+  gate `meles.io/scan` to new pods in namespaces labelled
+  `meles.io/gate: enforce` or `audit` and records the mode in the
+  annotation `meles.io/gate-mode`, so the operator needs no access to
+  namespaces. Never in `kube-system` or the namespace of meles (clamd would
+  wait for its own scan). Pods with the annotation `meles.io/gate: skip`
+  and pods bound to a node already (static pods) pass unchanged.
+- The operator resolves the tags itself (a gated pod has no `imageID` yet,
+  `source.Resolve`, with the pod's pull secrets), requests the scans with
+  the highest priority and writes the reports as usual. In one patch with
+  an optimistic lock it pins the pod's images to the scanned digests
+  (`image` is one of the few mutable fields of a pod) and removes the gate.
+  So exactly what was scanned runs, even if the tag moved meanwhile; the
+  kubelet later reports the same digest, and the report stays as it is.
 - `Clean` releases (ignored findings do not count). `Infected` holds, with
-  an event on the pod; a rollout of an infected version leaves the old pods
-  running. `Incomplete` and image or registry errors hold in `enforce`;
-  `audit` holds only `Infected`. There is no maximum wait: a held pod is
-  visible. Known digests are released at once; rescans never gate.
-- Queue order: gated pods first, then new images, then rescans.
+  an event on the pod (`ScanGateHeld`); a rollout of an infected version
+  leaves the old pods running. `Incomplete` and image or registry errors
+  hold in `enforce`; `audit` holds only `Infected`. There is no maximum
+  wait: a held pod is visible. Known digests are released at once; rescans
+  never gate. Changed ignore rules and the rescan annotation re-evaluate
+  held pods like any other.
+- Reports record where an `Error` came from (`errorSource`): `Engine`
+  (clamd unreachable, timeout, protocol; `scan.EngineError`) or `Image`.
+  Engine errors release with `--gate-fail-open` (event
+  `ScanGateReleasedUnscanned`) and are retried after at most 5 minutes; an
+  image that cannot be resolved is tried again after 5 minutes as well.
+- Queue order: gated pods first, then new images, then rescans; a queued
+  scan moves up when a gated pod needs it.
+- The webhook runs in every operator replica, scanning only on the leader;
+  the chart runs two replicas while the gate is on.
 
 Why gate instead of reject: a webhook may take at most 30 seconds, a scan
 takes minutes, and rejected pods cause retry loops in the ReplicaSet
@@ -229,8 +247,7 @@ That is fail-closed only. The webhook runs inside the operator: if the
 operator is down, so is the webhook, and with `failurePolicy: Ignore` (the
 default) pods start unscanned; `Fail` is available for fail-closed. Failures
 of meles' own infrastructure (clamd unreachable, timeouts) follow the same
-setting and release the pod with an event "released unscanned"; image and
-registry errors hold it. The policy may come later as an option for
+setting (`operator.gate.failOpen`); image and registry errors hold the pod. The policy may come later as an option for
 administrators who want fail-closed and no webhook certificate.
 
 ## Server and cluster reports
@@ -271,7 +288,7 @@ scan.
 | clamd + proxy | none | TLS port 3310 with token; NetworkPolicy: only pods of the release (plus `networkPolicy.clamdExtraFrom`) |
 | Mirror | none | HTTP, only for clamd (NetworkPolicy) |
 | Server | read `malwarereports` cluster-wide, `patch` for the rescan button (optional) | UI and API without login of its own: oauth2-proxy sidecar or keep internal |
-| Operator | read `pods`, `nodes`, `jobs`; write `malwarereports`; read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it | health port only |
+| Operator | read `pods`, `nodes`, `jobs`; write `malwarereports`; read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it; with the scan gate `patch` on `pods` and `create` on events in all namespaces | health port; with the scan gate the webhook (HTTPS, port 9443) |
 | Harbor adapter | none | HTTP API with bearer token |
 
 - No component needs to run as root; the meles image is non-root on
@@ -280,6 +297,10 @@ scan.
 - clamd parses untrusted files from every image; that is its job, and the
   reason it runs in its own pod without permissions and behind the proxy.
 - Everyone who can open the UI sees the reports of all namespaces.
+- The scan gate is no barrier against someone who may update pods in a
+  gated namespace: scheduling gates can be removed by anyone with that
+  right. It protects against rollouts of infected images, not against
+  namespace members bypassing it on purpose.
 - A full review (permissions, pull secrets, clamd's attack surface, network
   paths, tokens, supply chain of the images) is planned before the release.
 
@@ -301,7 +322,7 @@ scan.
 | Cluster reports | read from the CRDs, history only in SQLite | one source of truth |
 | Operator reports | one per workload and container, owned by the workload | teams see their own, cleanup by garbage collection |
 | Pull secrets | opt-in per namespace | cluster-wide secret access is a lot of power |
-| Scan gate | off by default; webhook with scheduling gates | admin decides; scans take minutes; fail-open possible |
+| Scan gate | off by default; webhook with scheduling gates, digest pinning, mode per namespace label | admin decides; scans take minutes; exactly the scanned image runs; fail-open possible |
 
 ## Non-goals
 

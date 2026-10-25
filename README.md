@@ -256,6 +256,10 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret the operator always uses, e.g. a Docker Hub account |
 | `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
+| `operator.gate.enabled` | `false` | scan gate: hold new pods in labelled namespaces until their images are scanned (see below) |
+| `operator.gate.failOpen` | `true` | release held pods when the scan failed in clamd |
+| `operator.gate.failurePolicy` | `Ignore` | webhook failure policy; `Fail` blocks pod creation in gated namespaces while the operator is down |
+| `operator.gate.tls.certManager.*` | off | webhook certificate from cert-manager instead of a self-signed one |
 
 ### Operator
 
@@ -362,16 +366,46 @@ updates or deletes it; after an upgrade apply it again:
 kubectl apply -f charts/meles/crds/
 ```
 
-### Scan gate (planned)
+### Scan gate
 
 By default meles only reports: a pod runs while its image is scanned, and
-the operator has no permission to change pods. The planned scan gate
-(`operator.gate.enabled`, off by default) lets an administrator hold new
-pods until their image is scanned, per namespace (label
-`meles.io/gate: enforce` or `audit`). Infected images never start, and a
-rollout of an infected version leaves the old pods running. How it works and
-why it uses a webhook rather than a `MutatingAdmissionPolicy`:
-[architecture.md](docs/architecture.md#scan-gate-planned).
+the operator has no permission to change pods. With `operator.gate.enabled`
+an administrator holds new pods until their images are scanned, per
+namespace:
+
+```sh
+kubectl label namespace shop meles.io/gate=enforce   # or audit
+```
+
+| Mode | Released when |
+|---|---|
+| `enforce` | every image is `Clean` (ignored findings do not count) |
+| `audit` | no image is `Infected` |
+
+A held pod is `SchedulingGated`; `kubectl describe pod` shows why in an
+event (`ScanGateHeld`), and its MalwareReport has the details. Once
+released, the pod runs exactly the scanned image: the operator pins it to
+the digest (`busybox:1.37@sha256:…`). Infected images never start, and a
+rollout of an infected version leaves the old pods running. An image that
+was scanned before is released at once; rescans never hold a pod.
+
+- A workload opts out with the annotation `meles.io/gate: skip` on its pod
+  template.
+- `kube-system`, the release namespace and `operator.gate.excludeNamespaces`
+  are never gated. Pods that exist already are not affected.
+- If clamd fails, held pods are released with a warning event
+  (`ScanGateReleasedUnscanned`) unless `operator.gate.failOpen=false`.
+  Images that cannot be pulled or resolved stay held.
+- If the operator is down, new pods start ungated
+  (`operator.gate.failurePolicy: Ignore`); `Fail` refuses to create pods in
+  gated namespaces until it is back. The chart runs two operator replicas
+  while the gate is on, so that a rollout of the operator does not open the
+  gate.
+- With the gate the operator may `patch` pods and create events in all
+  namespaces. Kubernetes 1.30 or later is required.
+
+How it works and why it uses a webhook rather than a
+`MutatingAdmissionPolicy`: [architecture.md](docs/architecture.md#scan-gate).
 
 ### Harbor
 
