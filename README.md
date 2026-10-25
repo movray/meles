@@ -257,6 +257,7 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
 | `operator.serviceMonitor.enabled` | `false` | ServiceMonitor for the operator's `/metrics` (`labels`, `interval`) |
+| `operator.prometheusRule.enabled` | `false` | alerts as a PrometheusRule (`labels`, `alertLabels`, `disabled`, `errorFor`, `gateHeldFor`) |
 | `operator.grafanaDashboard.enabled` | `false` | Grafana dashboard as a ConfigMap for the sidecar (`labels`, default `grafana_dashboard: "1"`; `namespace`, `annotations`) |
 | `networkPolicy.operatorMetricsFrom` | `[]` | further peers allowed to reach the operator's `/metrics` and `/status`, e.g. Prometheus |
 | `operator.gate.enabled` | `false` | scan gate: hold new pods in labelled namespaces until their images are scanned (see below) |
@@ -388,10 +389,27 @@ adds a Grafana dashboard (reports, queue, scans, scan gate) as a ConfigMap
 for Grafana's dashboard sidecar, as in kube-prometheus-stack; the JSON is
 in `charts/meles/dashboards/` for importing it by hand.
 
+`operator.prometheusRule.enabled` adds alerts as a PrometheusRule:
+
+| Alert | Severity | When |
+|---|---|---|
+| `MelesInfectedWorkload` | critical | a namespace has Infected reports |
+| `MelesScanErrors` | warning | reports stay Error for `errorFor` (6h): images not scanned |
+| `MelesScansIncomplete` | info | reports stay Incomplete for `errorFor`: files skipped |
+| `MelesOperatorDown` | warning, critical with the scan gate | no operator replica reachable for 10 minutes |
+| `MelesOperatorNoLeader` | warning | no replica holds the leader lease for 10 minutes |
+| `MelesScanQueueStuck` | warning | scans queued, none finished for 30 minutes |
+| `MelesGatePodsHeld` | warning | the scan gate holds pods for `gateHeldFor` (30m) |
+| `MelesGateReleasedUnscanned` | warning | the scan gate released pods without a complete scan |
+
+The gate's alerts exist only with `operator.gate.enabled`; leave out others
+with `operator.prometheusRule.disabled`, e.g. `{MelesScansIncomplete: true}`.
+
 ```yaml
 operator:
   serviceMonitor: {enabled: true}
   grafanaDashboard: {enabled: true}
+  prometheusRule: {enabled: true}
 networkPolicy:
   operatorMetricsFrom:
     - namespaceSelector:

@@ -318,6 +318,24 @@ operator:
       grafana_dashboard: "1"
     # e.g. grafana_folder: meles (with the sidecar's folderAnnotation)
     annotations: {}
+  # Alerts as a PrometheusRule (Prometheus operator): Infected reports
+  # (critical), reports in Error and Incomplete, operator down or without a
+  # leader, a stuck scan queue and, with the scan gate, held pods and pods
+  # released without a complete scan. Needs the metrics in Prometheus
+  # (serviceMonitor and networkPolicy.operatorMetricsFrom).
+  prometheusRule:
+    enabled: false
+    # Labels your Prometheus selects rules by, e.g. release: kube-prometheus-stack.
+    labels: {}
+    # Labels added to every alert, e.g. team: platform, for Alertmanager's routes.
+    alertLabels: {}
+    # Alerts to leave out, e.g. {MelesScansIncomplete: true}.
+    disabled: {}
+    # How long reports stay Error or Incomplete before they alert; the
+    # operator retries failed scans meanwhile (retryAfter).
+    errorFor: 6h
+    # How long the scan gate holds pods before it alerts.
+    gateHeldFor: 30m
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:

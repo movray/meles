@@ -8,8 +8,9 @@ CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 # Kubernetes version of the API server and etcd that envtest runs.
 ENVTEST_K8S    ?= 1.36.x
 SETUP_ENVTEST  ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2
+PROMTOOL       ?= promtool
 
-.PHONY: build test test-integration test-envtest generate lint run-server selftest image image-tarball clean
+.PHONY: build test test-integration test-envtest test-rules generate lint run-server selftest image image-tarball clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/meles ./cmd/meles
@@ -25,6 +26,11 @@ test-integration:
 # KUBEBUILDER_ASSETS they are skipped by `make test`.
 test-envtest:
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use -p path $(ENVTEST_K8S))" go test -race ./internal/operator/... ./internal/server/...
+
+# The chart's alerts against hack/rules/rules_test.yaml; needs helm and
+# promtool (PROMTOOL=<path>).
+test-rules:
+	PROMTOOL=$(PROMTOOL) hack/rules/test.sh
 
 # Deepcopy functions and the CRD of api/v1alpha1.
 generate:

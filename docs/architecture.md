@@ -185,7 +185,13 @@ MalwareReports in the informer cache at each scrape, on the leader only
 `sum`). It shows the state of the cluster, while the other metrics only
 count since the start. Its `namespace` label is the report's, as in
 kube-state-metrics, hence `honorLabels` in the ServiceMonitor. The chart's
-Grafana dashboard (`charts/meles/dashboards/`) builds on these metrics.
+Grafana dashboard (`charts/meles/dashboards/`) and its alerts
+(`operator.prometheusRule`, tested with promtool in `hack/rules/`) build on
+these metrics. The alerts select by `job`, the metrics service's name,
+because `namespace` is the report's. Error and Incomplete alert only after
+`errorFor` (6h): the operator retries failed scans meanwhile, and a pull
+that fails once is no news. `MelesOperatorDown` is critical with the scan
+gate, since new pods in gated namespaces are then admitted ungated or held.
 
 ### Ignore rules
 

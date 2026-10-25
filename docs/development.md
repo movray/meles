@@ -19,6 +19,7 @@ make build              # bin/meles
 make test               # unit tests (race detector)
 make test-integration   # against a real clamd (CLAMD=unix:///run/clamav/clamd.ctl)
 make test-envtest       # operator and cluster-report tests against a real API server and etcd (downloads them)
+make test-rules         # the chart's Prometheus alerts with promtool (PROMTOOL=<path>)
 make generate           # deepcopy functions and the CRD after changing api/v1alpha1
 make lint               # gofmt and go vet
 make selftest           # EICAR test images against $(CLAMD)
