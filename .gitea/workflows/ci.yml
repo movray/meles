@@ -53,10 +53,12 @@ jobs:
         run: |
           set -eu
           mkdir -p /tmp/tools && cd /tmp/tools
-          curl -fsSLo helm.tgz "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
+          # A stalled download would otherwise hang until the job times out.
+          get() { curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors -o "$@"; }
+          get helm.tgz "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
           echo "$HELM_SHA256  helm.tgz" | sha256sum -c -
           tar -xzf helm.tgz --strip-components=1 linux-amd64/helm
-          curl -fsSLo prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION/prometheus-$PROMETHEUS_VERSION.linux-amd64.tar.gz"
+          get prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION/prometheus-$PROMETHEUS_VERSION.linux-amd64.tar.gz"
           echo "$PROMETHEUS_SHA256  prometheus.tgz" | sha256sum -c -
           tar -xzf prometheus.tgz --strip-components=1 "prometheus-$PROMETHEUS_VERSION.linux-amd64/promtool"
       - run: PATH="/tmp/tools:$PATH" make test-rules
