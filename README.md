@@ -20,8 +20,16 @@ layers.
 - Scanning is done by ClamAV's `clamd` over its socket protocol. meles does not
   link against libclamav and stays Apache-2.0 licensed.
 
-meles reports; it does not block or delete anything. It is no substitute for
-image signing, SBOMs or runtime detection.
+By default meles only reports, and it never deletes anything. It is no
+substitute for image signing, SBOMs or runtime detection.
+
+## Documentation
+
+- this README: using meles (CLI, web UI, Kubernetes, Harbor)
+- [docs/architecture.md](docs/architecture.md): how it works, where state
+  lives, security model, design decisions
+- [docs/development.md](docs/development.md): building, testing, releasing
+- [ROADMAP.md](ROADMAP.md): plans and progress (German)
 
 ## Quick start
 
@@ -69,10 +77,8 @@ limit of `2047M`. Files above 4 MiB are streamed to clamd, so a high limit
 costs no memory in meles; clamd keeps each stream in a temporary file while
 it scans it. clamd's `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` must
 be at least as large (the Helm chart sets them to at least
-`scan.maxFileSize`; clamd's own default `StreamMaxLength` is only `100M`).
-`MaxFileSize` also limits content clamd unpacks from a file, so the chart
-sets it to `clamd.maxScanSize`: random bytes in a binary can look like an
-archive that claims a gigabyte. Files that clamd
+`scan.maxFileSize`, see [Limits in clamd](docs/architecture.md#limits-in-clamd);
+clamd's own default `StreamMaxLength` is only `100M`). Files that clamd
 refuses as too large are reported as skipped. Larger files, such as big ML
 models, cannot be scanned by ClamAV at all.
 
@@ -187,13 +193,8 @@ make run-server          # http://127.0.0.1:8080, database in meles.db
 Runs and reports are stored in SQLite. The server has **no login of its own**:
 keep it internal or put an authenticating proxy in front of it.
 
-To try it with infected test images locally:
-
-```sh
-go run ./hack/testregistry &      # serves EICAR test images on 127.0.0.1:5055
-bin/meles server --insecure-registry --db demo.db
-# then scan 127.0.0.1:5055/selftest/eicar-whiteout:latest
-```
+To try it with infected test images locally, see
+[development.md](docs/development.md#eicar).
 
 API: `GET/POST /api/scans`, `GET/PUT/DELETE /api/scans/{id}`,
 `POST /api/scans/{id}/run`, `GET/POST /api/runs`, `GET /api/runs/{id}`,
@@ -367,25 +368,10 @@ By default meles only reports: a pod runs while its image is scanned, and
 the operator has no permission to change pods. The planned scan gate
 (`operator.gate.enabled`, off by default) lets an administrator hold new
 pods until their image is scanned, per namespace (label
-`meles.io/gate: enforce` or `audit`). A mutating webhook in the operator
-adds the scheduling gate `meles.io/scan` to new pods; the operator scans the
-image, pins the pod to the scanned digest and removes the gate. Infected
-images never start, and a rollout of an infected version leaves the old
-pods running.
-
-**Design decision: a webhook, not a `MutatingAdmissionPolicy`.** Kubernetes
-1.36 can add the gate without a webhook, with a `MutatingAdmissionPolicy`
-evaluated in the API server. It needs no webhook certificate, but it always
-applies: if meles is down, nobody removes the gate, and every new pod in a
-gated namespace waits (updates, scale-ups, CronJobs, replacements after a
-node failure; a rolling update with `maxUnavailable` still stops some old
-pods). That is fail-closed only. The webhook runs inside the operator: if
-the operator is down, so is the webhook, and with `failurePolicy: Ignore`
-(the default) pods start unscanned; `Fail` is available for fail-closed.
-Failures of meles' own infrastructure (clamd unreachable, timeouts) follow
-the same setting; image and registry errors hold the pod. The policy may
-come later as an option for administrators who want fail-closed and no
-webhook certificate.
+`meles.io/gate: enforce` or `audit`). Infected images never start, and a
+rollout of an infected version leaves the old pods running. How it works and
+why it uses a webhook rather than a `MutatingAdmissionPolicy`:
+[architecture.md](docs/architecture.md#scan-gate-planned).
 
 ### Harbor
 
@@ -476,16 +462,7 @@ twice that during a reload.
 
 ## Development
 
-```sh
-make test               # unit tests (race detector)
-make test-integration   # against a real clamd (CLAMD=unix:///run/clamav/clamd.ctl)
-make test-envtest       # operator tests against a real API server and etcd (downloads them)
-make generate           # deepcopy functions and the CRD after changing api/v1alpha1
-make lint
-make image              # build and push the image with ko, no Docker daemon
-```
-
-EICAR test files are generated at runtime and never stored in the repository.
+See [docs/development.md](docs/development.md).
 
 ## License
 
