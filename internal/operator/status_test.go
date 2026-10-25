@@ -2,10 +2,14 @@ package operator
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
 )
@@ -49,5 +53,38 @@ func TestStatus(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metricHeld); got != 1 {
 		t.Errorf("held metric = %v", got)
+	}
+}
+
+func TestReportMetrics(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	rep := func(ns, name, status string) *v1alpha1.MalwareReport {
+		return &v1alpha1.MalwareReport{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+			Report:     v1alpha1.ReportData{Summary: v1alpha1.Summary{Status: status}},
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		rep("shop", "a", v1alpha1.StatusClean), rep("shop", "b", v1alpha1.StatusClean),
+		rep("shop", "c", v1alpha1.StatusInfected), rep("db", "d", v1alpha1.StatusError),
+	).Build()
+	leader := true
+	col := reportCollector{c, func() bool { return leader }}
+	want := `
+# HELP meles_operator_reports MalwareReports by namespace and status (Clean, Infected, Incomplete, Error); only the leader reports them.
+# TYPE meles_operator_reports gauge
+meles_operator_reports{namespace="db",status="Error"} 1
+meles_operator_reports{namespace="shop",status="Clean"} 2
+meles_operator_reports{namespace="shop",status="Infected"} 1
+`
+	if err := testutil.CollectAndCompare(col, strings.NewReader(want)); err != nil {
+		t.Error(err)
+	}
+	leader = false
+	if n := testutil.CollectAndCount(col); n != 0 {
+		t.Errorf("follower reports %d series", n)
 	}
 }

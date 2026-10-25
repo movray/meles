@@ -141,6 +141,9 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 				<-mgr.Elected()
 				operator.SetLeader()
 			}()
+			if err := operator.RegisterReportMetrics(mgr.GetClient(), r.IsLeader); err != nil {
+				return fmt.Errorf("report metrics: %w", err)
+			}
 			if gate {
 				r.Recorder = mgr.GetEventRecorder("meles-operator")
 				operator.RegisterGateWebhooks(mgr)

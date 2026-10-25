@@ -250,6 +250,8 @@ spec:
       {{- include "meles.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: operator
   endpoints:
-    - {port: metrics, path: /metrics, interval: {{ .Values.operator.serviceMonitor.interval }}}
+    # honorLabels keeps the namespace label of meles_operator_reports (the
+    # report's namespace, not the operator's), as for kube-state-metrics.
+    - {port: metrics, path: /metrics, honorLabels: true, interval: {{ .Values.operator.serviceMonitor.interval }}}
 {{- end }}
 {{- end }}

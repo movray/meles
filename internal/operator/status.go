@@ -1,7 +1,9 @@
 package operator
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"slices"
@@ -10,8 +12,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	"git.itknecht.de/sugras/meles/api/v1alpha1"
 	"git.itknecht.de/sugras/meles/internal/opstatus"
 )
 
@@ -59,6 +63,51 @@ func init() {
 
 // SetLeader records that this replica became the leader.
 func SetLeader() { metricLeader.Set(1) }
+
+var reportsDesc = prometheus.NewDesc("meles_operator_reports",
+	"MalwareReports by namespace and status (Clean, Infected, Incomplete, Error); only the leader reports them.",
+	[]string{"namespace", "status"}, nil)
+
+// reportCollector counts the MalwareReports in the cache at each scrape.
+type reportCollector struct {
+	reader   client.Reader
+	isLeader func() bool
+}
+
+func (c reportCollector) Describe(ch chan<- *prometheus.Desc) { ch <- reportsDesc }
+
+func (c reportCollector) Collect(ch chan<- prometheus.Metric) {
+	// Every replica caches the reports; one series per report set is enough.
+	if c.isLeader != nil && !c.isLeader() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var list v1alpha1.MalwareReportList
+	if err := c.reader.List(ctx, &list); err != nil {
+		ch <- prometheus.NewInvalidMetric(reportsDesc, err)
+		return
+	}
+	type key struct{ ns, status string }
+	counts := map[key]int{}
+	for _, rep := range list.Items {
+		counts[key{rep.Namespace, rep.Report.Summary.Status}]++
+	}
+	for k, n := range counts {
+		ch <- prometheus.MustNewConstMetric(reportsDesc, prometheus.GaugeValue, float64(n), k.ns, k.status)
+	}
+}
+
+// RegisterReportMetrics exports meles_operator_reports, counted from the
+// reports reader (the manager's cache) lists.
+func RegisterReportMetrics(reader client.Reader, isLeader func() bool) error {
+	err := metrics.Registry.Register(reportCollector{reader, isLeader})
+	var are prometheus.AlreadyRegisteredError
+	if errors.As(err, &are) {
+		return nil
+	}
+	return err
+}
 
 // stats is what the status reports beyond the queue.
 type stats struct {

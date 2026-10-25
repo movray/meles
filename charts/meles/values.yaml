@@ -306,6 +306,18 @@ operator:
     interval: 30s
     # Labels your Prometheus selects ServiceMonitors by, e.g. release: kube-prometheus-stack.
     labels: {}
+  # A Grafana dashboard of these metrics as a ConfigMap, for Grafana's
+  # dashboard sidecar (kube-prometheus-stack: label grafana_dashboard: "1",
+  # any namespace by default). The JSON is in the chart under dashboards/
+  # for importing it by hand.
+  grafanaDashboard:
+    enabled: false
+    # Namespace of the ConfigMap, if the sidecar watches only Grafana's.
+    namespace: ""
+    labels:
+      grafana_dashboard: "1"
+    # e.g. grafana_folder: meles (with the sidecar's folderAnnotation)
+    annotations: {}
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:

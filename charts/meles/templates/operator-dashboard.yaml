@@ -1,0 +1,23 @@
+{{- if and .Values.operator.enabled .Values.operator.grafanaDashboard.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+# Grafana dashboard of the operator's metrics, for Grafana's dashboard
+# sidecar (as in kube-prometheus-stack), which loads ConfigMaps by label.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-operator-dashboard
+  namespace: {{ .Values.operator.grafanaDashboard.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+    {{- with .Values.operator.grafanaDashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.operator.grafanaDashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  meles-operator.json: |-
+    {{- .Files.Get "dashboards/meles-operator.json" | nindent 4 }}
+{{- end }}
