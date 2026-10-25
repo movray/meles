@@ -250,6 +250,15 @@ non-goal). meles does not talk to the kubelet or the CRI; the price is a
 second pull from the registry (rate limits). A registry mirror or Harbor
 with the adapter avoids it.
 
+The operator pulls every image itself: manifest and layers for each scan,
+and again for each rescan (at most every `--rescan-interval`, and only after
+a signature update) and each retry. It has no pull budget per registry and
+does not read headers such as Docker Hub's `ratelimit-remaining`, on
+purpose: throttling would only delay scans (and hold gated pods longer)
+while the kubelet still runs into the same limit. A pull-through cache
+helps both, credentials in `operator.registryAuthSecret` raise meles' own
+limit; without either, the admin accepts the second pull.
+
 ### Scan gate
 
 Off by default: meles only reports, and the operator has no permission to
@@ -377,6 +386,7 @@ scan.
 | Cluster reports | read from the CRDs, history only in SQLite | one source of truth |
 | Operator reports | one per workload and container, owned by the workload | teams see their own, cleanup by garbage collection |
 | Pull secrets | opt-in per namespace | cluster-wide secret access is a lot of power |
+| Registry rate limits | the operator pulls every image itself, no throttling of its own; pull-through cache or credentials recommended | a cache helps the kubelet too, throttling only delays scans |
 | Scan gate | off by default; webhook with scheduling gates, digest pinning, mode per namespace label | admin decides; scans take minutes; exactly the scanned image runs; fail-open possible |
 
 ## Non-goals

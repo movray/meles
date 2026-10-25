@@ -516,7 +516,9 @@ allowlist works on the signature IDs as well.
 ### Registry rate limits and a pull-through cache
 
 The operator pulls the manifests and layers of every image it scans, and
-again for each rescan. Without credentials it pulls from the same address
+again for each rescan, independently of the kubelet: a second pull per
+image. meles does not throttle these pulls on its own, since that would only
+delay the scans. Without credentials it pulls from the same address
 as the nodes, so both share the registry's limit for anonymous pulls
 (Docker Hub: 100 per hour per IP address); a cluster with many Docker Hub
 images runs into `TOOMANYREQUESTS`, in the operator's reports and in the
