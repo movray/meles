@@ -126,7 +126,7 @@ metadata:
     {{- include "meles.labels" . | nindent 4 }}
     app.kubernetes.io/component: operator
 spec:
-  replicas: 1
+  replicas: {{ if .Values.operator.gate.enabled }}{{ .Values.operator.gate.replicas }}{{ else }}1{{ end }}
   selector:
     matchLabels:
       {{- include "meles.selectorLabels" . | nindent 6 }}
@@ -165,11 +165,19 @@ spec:
             {{- end }}
             - {name: MELES_RESCAN_INTERVAL, value: {{ .Values.operator.rescanInterval | quote }}}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
+            {{- if .Values.operator.gate.enabled }}
+            - {name: MELES_GATE, value: "true"}
+            - {name: MELES_GATE_FAIL_OPEN, value: {{ .Values.operator.gate.failOpen | quote }}}
+            - {name: MELES_WEBHOOK_CERT_DIR, value: /tls}
+            {{- end }}
             {{- with .Values.operator.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           ports:
             - {name: health, containerPort: 8081}
+            {{- if .Values.operator.gate.enabled }}
+            - {name: webhook, containerPort: 9443}
+            {{- end }}
           readinessProbe:
             httpGet: {path: /readyz, port: health}
           livenessProbe:
@@ -187,6 +195,9 @@ spec:
             {{- if .Values.operator.registryAuthSecret }}
             - {name: docker-config, mountPath: /docker, readOnly: true}
             {{- end }}
+            {{- if .Values.operator.gate.enabled }}
+            - {name: webhook-tls, mountPath: /tls, readOnly: true}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -197,5 +208,10 @@ spec:
             secretName: {{ .Values.operator.registryAuthSecret }}
             items:
               - {key: .dockerconfigjson, path: config.json}
+        {{- end }}
+        {{- if .Values.operator.gate.enabled }}
+        - name: webhook-tls
+          secret:
+            secretName: {{ $fullname }}-operator-webhook-tls
         {{- end }}
 {{- end }}

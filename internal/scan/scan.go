@@ -27,6 +27,35 @@ import (
 	"git.itknecht.de/sugras/meles/internal/source"
 )
 
+// EngineError is a failure of the scan engine itself (unreachable, timeout,
+// protocol error), as opposed to one of the image or its registry. The
+// operator's scan gate treats it like an outage of meles.
+type EngineError struct{ Err error }
+
+func (e *EngineError) Error() string { return e.Err.Error() }
+func (e *EngineError) Unwrap() error { return e.Err }
+
+// IsEngineError reports whether err is (or wraps) an EngineError.
+func IsEngineError(err error) bool {
+	var e *EngineError
+	return errors.As(err, &e)
+}
+
+// errReader remembers the error of the reader it wraps, so that a failed
+// read of the layer is not mistaken for a failure of the engine.
+type errReader struct {
+	r   io.Reader
+	err error
+}
+
+func (e *errReader) Read(p []byte) (int, error) {
+	n, err := e.r.Read(p)
+	if err != nil && err != io.EOF {
+		e.err = err
+	}
+	return n, err
+}
+
 // Scanner scans images. It is safe for concurrent use if its Engine is.
 type Scanner struct {
 	Engine engine.Engine
@@ -110,7 +139,7 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 
 	version, err := s.Engine.Version(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("engine version: %w", err)
+		return nil, &EngineError{fmt.Errorf("engine version: %w", err)}
 	}
 	so := s.Source
 	so.Platforms = platforms
@@ -242,7 +271,7 @@ func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob)
 	if *sess == nil {
 		var err error
 		if *sess, err = s.Engine.Open(ctx); err != nil {
-			return err
+			return &EngineError{err}
 		}
 	}
 	// The hash of flagged and skipped files lets ignore rules name exactly
@@ -265,6 +294,8 @@ func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob)
 		}
 		return hex.EncodeToString(streamHash.Sum(nil)), nil
 	}
+	er := &errReader{r: r}
+	r = er
 	sig, err := (*sess).Scan(ctx, r)
 	if errors.Is(err, engine.ErrTooLarge) {
 		// Not scanned, like a file above MaxFileSize. The engine dropped
@@ -281,6 +312,9 @@ func (s *Scanner) scanFile(ctx context.Context, sess *engine.Session, j scanJob)
 		return nil
 	}
 	if err != nil {
+		if er.err == nil && ctx.Err() == nil {
+			err = &EngineError{err}
+		}
 		return fmt.Errorf("scan %s: %w", j.path, err)
 	}
 	if sig == "" {

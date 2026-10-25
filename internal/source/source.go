@@ -95,6 +95,42 @@ type Options struct {
 	Insecure bool
 }
 
+// Resolve returns the repository and the digest a reference points to now,
+// without fetching the image: for a tag, the digest of the manifest or index
+// the registry serves, as the kubelet would pull it.
+func Resolve(ctx context.Context, ref string, opts Options) (repository, digest string, err error) {
+	var nopts []name.Option
+	if opts.Insecure {
+		nopts = append(nopts, name.Insecure)
+	}
+	r, err := name.ParseReference(ref, nopts...)
+	if err != nil {
+		return "", "", fmt.Errorf("parse reference %q: %w", ref, err)
+	}
+	repository = r.Context().Name()
+	if reg := r.Context().RegistryStr(); reg == name.DefaultRegistry {
+		// As the kubelet reports it.
+		repository = "docker.io/" + r.Context().RepositoryStr()
+	}
+	if d, ok := r.(name.Digest); ok {
+		return repository, d.DigestStr(), nil
+	}
+	kc := opts.Keychain
+	if kc == nil {
+		kc = authn.DefaultKeychain
+	}
+	desc, err := remote.Head(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+	if err != nil {
+		// Some registries answer HEAD poorly.
+		d, gerr := remote.Get(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+		if gerr != nil {
+			return "", "", fmt.Errorf("resolve %s: %w", ref, gerr)
+		}
+		return repository, d.Digest.String(), nil
+	}
+	return repository, desc.Digest.String(), nil
+}
+
 // Fetch resolves ref and returns the selected platform images. Layers are
 // fetched lazily when they are read.
 func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {

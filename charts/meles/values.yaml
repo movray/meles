@@ -264,6 +264,39 @@ operator:
   # Delete reports of ReplicaSets, StatefulSets and DaemonSets without pods
   # (e.g. old ReplicaSets of a Deployment) this often; 0 disables.
   pruneInterval: 30m
+  # Scan gate: hold new pods until their images are scanned. Off by default:
+  # the operator then only reports and has no permission to change pods.
+  # Turned on, a mutating webhook adds a scheduling gate to new pods in
+  # namespaces labelled meles.io/gate=enforce (released once every image is
+  # Clean) or meles.io/gate=audit (held only if an image is Infected); the
+  # operator scans, pins the pods to the scanned digests and releases them.
+  # It gets patch on pods and creates events in all namespaces. A workload
+  # opts out with the annotation meles.io/gate: skip on its pod template.
+  # kube-system and the release namespace are never gated. Needs Kubernetes
+  # 1.30 or later.
+  gate:
+    enabled: false
+    # Release held pods also when the scan failed in clamd (an outage of
+    # meles), with a warning event. false: they wait until clamd is back.
+    failOpen: true
+    # Webhook failurePolicy: Ignore starts pods ungated while the operator
+    # is down (fail-open); Fail refuses to create pods in gated namespaces
+    # until it is back.
+    failurePolicy: Ignore
+    timeoutSeconds: 5
+    # Operator replicas while the gate is on: the webhook runs in every
+    # replica (only the leader scans), so that pods are gated during a
+    # rollout of the operator, too. Each replica caches all pods.
+    replicas: 2
+    # Further namespaces that are never gated.
+    excludeNamespaces: []
+    # Certificate of the webhook: self-signed (generated once and kept) or
+    # from cert-manager (the CA injector fills the caBundle; the issuer must
+    # provide ca.crt, e.g. a CA issuer).
+    tls:
+      certManager:
+        enabled: false
+        issuerRef: {}
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:

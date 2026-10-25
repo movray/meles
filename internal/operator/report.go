@@ -26,6 +26,8 @@ type result struct {
 	findings  []v1alpha1.Finding
 	skipped   []v1alpha1.Skipped
 	err       string
+	// errSource is ErrorSourceEngine or ErrorSourceImage if err is set.
+	errSource string
 	scannedAt time.Time
 }
 
@@ -67,11 +69,18 @@ func rawStatus(err string, findings, skipped int) string {
 	return v1alpha1.StatusClean
 }
 
+// resultFromError records a failed scan; failures of the engine are told
+// apart from those of the image.
 func resultFromError(err error, version string) result {
+	src := v1alpha1.ErrorSourceImage
+	if scan.IsEngineError(err) {
+		src = v1alpha1.ErrorSourceEngine
+	}
 	return result{
 		scanner:   v1alpha1.Scanner{Version: version},
 		summary:   v1alpha1.Summary{Status: v1alpha1.StatusError},
 		err:       err.Error(),
+		errSource: src,
 		scannedAt: time.Now(),
 	}
 }
@@ -82,7 +91,7 @@ func resultFromError(err error, version string) result {
 func resultFromData(d v1alpha1.ReportData) result {
 	r := result{
 		scanner: d.Scanner, filter: d.PlatformFilter, platforms: d.Platforms, summary: d.Summary,
-		err: d.Error, scannedAt: d.ScannedAt.Time,
+		err: d.Error, errSource: d.ErrorSource, scannedAt: d.ScannedAt.Time,
 	}
 	for _, f := range d.Findings {
 		f.Ignored = nil
@@ -145,7 +154,7 @@ func match(m *ignore.Match) *v1alpha1.IgnoreMatch {
 
 func (r result) apply(d *v1alpha1.ReportData) {
 	d.Scanner, d.PlatformFilter, d.Platforms, d.Summary = r.scanner, r.filter, r.platforms, r.summary
-	d.Findings, d.Skipped, d.Error = r.findings, r.skipped, r.err
+	d.Findings, d.Skipped, d.Error, d.ErrorSource = r.findings, r.skipped, r.err, r.errSource
 	d.ScannedAt = metav1.NewTime(r.scannedAt)
 }
 

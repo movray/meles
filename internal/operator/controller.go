@@ -10,6 +10,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,6 +55,10 @@ type EngineVersioner interface {
 // versionTTL is how long the engine version is cached. clamd reloads its
 // database at most every few minutes.
 const versionTTL = 5 * time.Minute
+
+// engineRetry bounds the wait before a scan that failed in the engine (clamd
+// unreachable, timeout) is retried.
+const engineRetry = 5 * time.Minute
 
 // PlatformsNodes selects the architectures of the cluster's nodes.
 const PlatformsNodes = "nodes"
@@ -88,7 +94,16 @@ type Reconciler struct {
 	// RescanInterval is the minimum age of a result before it is rescanned
 	// because the signature database changed. 0 disables rescans.
 	RescanInterval time.Duration
-	Logger         *slog.Logger
+	// Gate releases pods held by the scan gate once their images are
+	// scanned. GateFailOpen releases them, too, when the scan failed in the
+	// engine (an outage of meles); otherwise they wait for clamd.
+	Gate         bool
+	GateFailOpen bool
+	// Insecure allows plain HTTP registries when resolving tags.
+	Insecure bool
+	// Recorder emits the gate's events on held and released pods.
+	Recorder events.EventRecorder
+	Logger   *slog.Logger
 
 	queue  *scanQueue
 	events chan event.GenericEvent
@@ -226,6 +241,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if r.Gate && gated(&pod) {
+		return r.reconcileGated(ctx, &pod, owner)
+	}
 
 	var requeue time.Duration
 	statuses := []struct {
@@ -237,30 +255,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if cs.ImageID == "" {
 				continue // not pulled yet; the next status update brings it
 			}
-			wait, err := r.reconcileContainer(ctx, &pod, owner, cs, group.init)
+			img, pullable := parseImageID(cs.ImageID, cs.Image)
+			c := container{name: cs.Name, init: group.init, img: img, pullable: pullable}
+			if !pullable {
+				c.unpullable = fmt.Sprintf("image %q has no registry reference (imported into the node?); it cannot be pulled and scanned", cs.ImageID)
+			}
+			_, wait, err := r.reconcileContainer(ctx, &pod, owner, c)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("container %s: %w", cs.Name, err)
 			}
-			if wait > 0 && (requeue == 0 || wait < requeue) {
-				requeue = wait
-			}
+			requeue = minWait(requeue, wait)
 		}
 	}
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
+// container is one container of a pod and the image it runs (or, for a
+// pod held by the scan gate, will run).
+type container struct {
+	name     string
+	init     bool
+	img      image
+	pullable bool
+	// unpullable explains why the image cannot be scanned.
+	unpullable string
+	// gated: the pod waits for the scan.
+	gated bool
+}
+
 // reconcileContainer makes sure the report of one container describes the
-// image it runs and is not outdated. It returns when to look again.
-func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, cs corev1.ContainerStatus, init bool) (time.Duration, error) {
-	img, pullable := parseImageID(cs.ImageID, cs.Image)
-	name := reportName(owner.Kind, owner.Name, cs.Name)
+// image it runs and is not outdated. It returns the current result with the
+// namespace's ignore rules applied, or nil while a scan is pending, and
+// when to look again.
+func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, c container) (*result, time.Duration, error) {
+	img, pullable := c.img, c.pullable
+	name := reportName(owner.Kind, owner.Name, c.name)
 	parent := parentOf(pod, owner)
 
 	key := client.ObjectKey{Namespace: pod.Namespace, Name: name}
 	now := time.Now()
 	rules, err := r.rulesFor(ctx, pod.Namespace, now)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	// Reports are evaluated again when the next rule expires.
 	expiry := time.Duration(0)
@@ -270,15 +306,18 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 	var existing v1alpha1.MalwareReport
 	err = r.Client.Get(ctx, key, &existing)
 	force := err == nil && rescanRequested(&existing)
+	// A first result goes before rescans of known ones.
+	prio := prioNew
 	switch {
 	case apierrors.IsNotFound(err):
 	case err != nil:
-		return 0, fmt.Errorf("get report %s: %w", name, err)
+		return nil, 0, fmt.Errorf("get report %s: %w", name, err)
 	case existing.Report.Image.Digest == img.digest && !force:
+		prio = prioRescan
 		cur := resultFromData(existing.Report).withIgnore(rules, img, now)
 		stale, wait, err := r.stale(ctx, cur)
 		if err != nil {
-			return 0, err
+			return nil, 0, err
 		}
 		if !stale {
 			wait = minWait(wait, expiry)
@@ -288,47 +327,50 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 			cur.apply(want)
 			want.Workload.Parent = parent
 			if equality.Semantic.DeepEqual(*want, existing.Report) {
-				return wait, nil
+				return &cur, wait, nil
 			}
-			return wait, r.writeReport(ctx, pod, owner, cs, init, img, parent, name, cur)
+			return &cur, wait, r.writeReport(ctx, pod, owner, c, parent, name, cur)
 		}
+	}
+	if c.gated {
+		prio = prioGated
 	}
 
 	var res result
 	switch {
 	case !pullable:
-		res = resultFromError(fmt.Errorf("image %q has no registry reference (imported into the node?); it cannot be pulled and scanned", cs.ImageID), r.Version)
+		res = resultFromError(errors.New(c.unpullable), r.Version)
 	default:
 		platforms, err := r.platforms(ctx)
 		if err != nil {
-			return 0, err
+			return nil, 0, err
 		}
 		var ok bool
 		if res, ok, err = r.cachedResult(ctx, img, platforms, force); err != nil {
-			return 0, err
+			return nil, 0, err
 		}
 		if !ok {
 			// The scan writes the image's existing reports and reconciles
 			// this pod again when it is done.
-			if err := r.queue.request(resultKey(img, platforms), platforms, img, client.ObjectKeyFromObject(pod)); err != nil {
-				return 0, fmt.Errorf("request scan of %s: %w", img.ref, err)
+			if err := r.queue.request(resultKey(img, platforms), platforms, img, prio, client.ObjectKeyFromObject(pod)); err != nil {
+				return nil, 0, fmt.Errorf("request scan of %s: %w", img.ref, err)
 			}
-			r.log().Debug("scan requested", "image", img.ref, "namespace", pod.Namespace, "report", name)
-			return 0, nil
+			r.log().Debug("scan requested", "image", img.ref, "namespace", pod.Namespace, "report", name, "priority", prio)
+			return nil, 0, nil
 		}
 	}
 
 	res = res.withIgnore(rules, img, now)
-	if err := r.writeReport(ctx, pod, owner, cs, init, img, parent, name, res); err != nil {
-		return 0, err
+	if err := r.writeReport(ctx, pod, owner, c, parent, name, res); err != nil {
+		return nil, 0, err
 	}
 	r.log().Info("report written", "namespace", pod.Namespace, "report", name, "image", img.ref, "status", res.summary.Status, "findings", res.summary.Findings, "ignored", res.summary.Ignored)
 	stale, wait, err := r.stale(ctx, res)
 	if stale {
 		// Due again already (retry shorter than scan and write).
-		return time.Second, err
+		return &res, time.Second, err
 	}
-	return minWait(wait, expiry), err
+	return &res, minWait(wait, expiry), err
 }
 
 // minWait returns the shorter of two waits, where 0 means none.
@@ -343,7 +385,8 @@ func minWait(a, b time.Duration) time.Duration {
 }
 
 // writeReport creates or updates the report of a container with res.
-func (r *Reconciler) writeReport(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, cs corev1.ContainerStatus, init bool, img image, parent, name string, res result) error {
+func (r *Reconciler) writeReport(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, c container, parent, name string, res result) error {
+	img := c.img
 	rep := &v1alpha1.MalwareReport{ObjectMeta: metav1.ObjectMeta{Namespace: pod.Namespace, Name: name}}
 	_, err := ctrl.CreateOrUpdate(ctx, r.Client, rep, func() error {
 		if rep.Labels == nil {
@@ -353,10 +396,10 @@ func (r *Reconciler) writeReport(ctx context.Context, pod *corev1.Pod, owner met
 		rep.Labels["app.kubernetes.io/managed-by"] = "meles-operator"
 		rep.Labels[v1alpha1.LabelWorkloadKind] = labelValue(owner.Kind)
 		rep.Labels[v1alpha1.LabelWorkloadName] = labelValue(owner.Name)
-		rep.Labels[v1alpha1.LabelContainer] = labelValue(cs.Name)
+		rep.Labels[v1alpha1.LabelContainer] = labelValue(c.name)
 		rep.Labels[v1alpha1.LabelDigest] = digestLabel(img.digest)
 		rep.OwnerReferences = []metav1.OwnerReference{owner}
-		rep.Report.Workload = v1alpha1.Workload{Kind: owner.Kind, Name: owner.Name, Parent: parent, Container: cs.Name, InitContainer: init}
+		rep.Report.Workload = v1alpha1.Workload{Kind: owner.Kind, Name: owner.Name, Parent: parent, Container: c.name, InitContainer: c.init}
 		rep.Report.Image = v1alpha1.Image{Repository: img.repository, Reference: img.reference, Digest: img.digest}
 		res.apply(&rep.Report)
 		return nil
@@ -376,6 +419,10 @@ func (r *Reconciler) stale(ctx context.Context, res result) (stale bool, wait ti
 	switch res.summary.Status {
 	case v1alpha1.StatusError:
 		retry = r.RetryAfter
+		if res.errSource == v1alpha1.ErrorSourceEngine {
+			// An outage of meles' own infrastructure is usually short.
+			retry = min(retry, engineRetry)
+		}
 	case v1alpha1.StatusIncomplete:
 		retry = r.RetryIncompleteAfter
 	}

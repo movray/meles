@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,6 +22,17 @@ const maxQueued = 4096
 
 var errQueueFull = errors.New("scan queue full")
 
+// priority orders the scan queue: pods held by the scan gate first, then
+// images without a result, then rescans (new signatures, retries).
+type priority int
+
+const (
+	prioGated priority = iota
+	prioNew
+	prioRescan
+	numPrios
+)
+
 // scanQueue runs image scans outside the reconcile loop. A reconcile that
 // needs a new result requests a scan and returns; a large image then holds
 // one scan worker, not the reconcilers, so that new pods, deleted reports,
@@ -30,35 +42,74 @@ var errQueueFull = errors.New("scan queue full")
 type scanQueue struct {
 	mu      sync.Mutex
 	pending map[string]*scanJob // queued or running, by result key
-	jobs    chan *scanJob
+	queued  [numPrios][]*scanJob
+	n       int
+	// ready wakes a worker after a request.
+	ready chan struct{}
 }
 
 type scanJob struct {
 	key, platforms string
 	img            image
+	prio           priority
+	running        bool
 	waiters        map[types.NamespacedName]struct{}
 }
 
 func newScanQueue() *scanQueue {
-	return &scanQueue{pending: map[string]*scanJob{}, jobs: make(chan *scanJob, maxQueued)}
+	return &scanQueue{pending: map[string]*scanJob{}, ready: make(chan struct{}, 1)}
 }
 
 // request queues a scan of img, unless one is queued or running, and
-// records pod to be reconciled when it is done.
-func (q *scanQueue) request(key, platforms string, img image, pod types.NamespacedName) error {
+// records pod to be reconciled when it is done. A queued scan moves up if
+// requested with a higher priority.
+func (q *scanQueue) request(key, platforms string, img image, prio priority, pod types.NamespacedName) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if j, ok := q.pending[key]; ok {
 		j.waiters[pod] = struct{}{}
+		if !j.running && prio < j.prio {
+			q.queued[j.prio] = slices.DeleteFunc(q.queued[j.prio], func(o *scanJob) bool { return o == j })
+			j.prio = prio
+			q.queued[prio] = append(q.queued[prio], j)
+		}
 		return nil
 	}
-	j := &scanJob{key: key, platforms: platforms, img: img, waiters: map[types.NamespacedName]struct{}{pod: {}}}
-	select {
-	case q.jobs <- j:
-	default:
+	if q.n >= maxQueued {
 		return errQueueFull
 	}
+	j := &scanJob{key: key, platforms: platforms, img: img, prio: prio, waiters: map[types.NamespacedName]struct{}{pod: {}}}
 	q.pending[key] = j
+	q.queued[prio] = append(q.queued[prio], j)
+	q.n++
+	q.wake()
+	return nil
+}
+
+func (q *scanQueue) wake() {
+	select {
+	case q.ready <- struct{}{}:
+	default:
+	}
+}
+
+// next returns the first job of the highest priority, or nil.
+func (q *scanQueue) next() *scanJob {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for p := range q.queued {
+		if len(q.queued[p]) == 0 {
+			continue
+		}
+		j := q.queued[p][0]
+		q.queued[p] = q.queued[p][1:]
+		q.n--
+		j.running = true
+		if q.n > 0 {
+			q.wake() // for the next idle worker
+		}
+		return j
+	}
 	return nil
 }
 
@@ -92,11 +143,14 @@ func (r *Reconciler) runScans(ctx context.Context, workers int) error {
 	for range max(workers, 1) {
 		wg.Go(func() {
 			for {
+				if j := r.queue.next(); j != nil {
+					r.runScan(ctx, j)
+					continue
+				}
 				select {
 				case <-ctx.Done():
 					return
-				case j := <-r.queue.jobs:
-					r.runScan(ctx, j)
+				case <-r.queue.ready:
 				}
 			}
 		})
@@ -140,6 +194,9 @@ func (r *Reconciler) scan(ctx context.Context, img image, platforms string, pods
 	rep, err := r.Scanner.Scan(sctx, img.ref, filter, nil, scan.WithKeychain(auth.keychain))
 	if err != nil {
 		r.log().Warn("scan failed", "image", img.ref, "err", err)
+		if scan.IsEngineError(err) {
+			return resultFromError(err, r.Version)
+		}
 		return resultFromError(errors.New(r.authHint(err, auth)), r.Version)
 	}
 	r.log().Info("image scanned", "image", img.ref, "platforms", platforms, "files", rep.Files(), "findings", len(rep.Findings()), "duration", time.Since(start).Round(time.Millisecond))

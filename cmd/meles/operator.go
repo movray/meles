@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
 	"git.itknecht.de/sugras/meles/internal/operator"
@@ -41,6 +42,10 @@ func newOperatorCmd() *cobra.Command {
 		leaderNS     string
 		cacheSize    int
 		cachePaths   int
+		gate         bool
+		gateFailOpen bool
+		webhookPort  int
+		webhookCerts string
 	)
 	cmd := &cobra.Command{
 		Use:   "operator",
@@ -63,6 +68,11 @@ Images are pulled with the imagePullSecrets of the pods that run them and of
 their service accounts, where the operator may read them (a RoleBinding to the
 pull-secret-reader ClusterRole per namespace, or cluster-wide), then with the
 Docker config (DOCKER_CONFIG).
+
+With --gate, the operator serves the mutating webhook of the scan gate
+(/gate/enforce, /gate/audit) and releases the pods it holds: once their images
+are Clean (enforce) or not Infected (audit), pinned to the scanned digests.
+--gate-fail-open releases them also when the scan failed in clamd.
 
 It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		Args: cobra.NoArgs,
@@ -100,7 +110,8 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 				LeaderElectionID:        "meles-operator.meles.io",
 				LeaderElectionNamespace: leaderNS,
 				// The cache holds every pod of the cluster.
-				Cache: cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
+				Cache:         cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
+				WebhookServer: webhook.NewServer(webhook.Options{Port: webhookPort, CertDir: webhookCerts}),
 			})
 			if err != nil {
 				return fmt.Errorf("create manager: %w", err)
@@ -110,6 +121,14 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 				Platforms: platforms, Workers: workers,
 				APIReader: mgr.GetAPIReader(), PullSecretRole: pullRole, ServiceAccount: operatorSA,
 				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RetryIncompleteAfter: retryIncompl, RescanInterval: rescan, Logger: log,
+				Gate: gate, GateFailOpen: gateFailOpen, Insecure: sf.insecure,
+			}
+			if gate {
+				r.Recorder = mgr.GetEventRecorder("meles-operator")
+				operator.RegisterGateWebhooks(mgr)
+				if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
+					return err
+				}
 			}
 			if err := r.SetupWithManager(mgr); err != nil {
 				return fmt.Errorf("set up controller: %w", err)
@@ -140,7 +159,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "rescan-interval", rescan, "version", version)
+			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "rescan-interval", rescan, "gate", gate, "version", version)
 			return mgr.Start(ctx)
 		},
 	}
@@ -158,6 +177,10 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	cmd.Flags().BoolVar(&leaderElect, "leader-elect", true, "use leader election, so that only one replica scans")
 	cmd.Flags().StringVar(&leaderNS, "leader-election-namespace", "", "namespace of the leader election lease; default: the pod's namespace")
 	cmd.Flags().IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory")
+	cmd.Flags().BoolVar(&gate, "gate", false, "scan gate: serve the webhook that holds new pods and release them once their images are scanned")
+	cmd.Flags().BoolVar(&gateFailOpen, "gate-fail-open", true, "release held pods also when the scan failed in clamd (an outage of meles), with a warning event")
+	cmd.Flags().IntVar(&webhookPort, "webhook-port", 9443, "port of the scan gate's webhook (HTTPS)")
+	cmd.Flags().StringVar(&webhookCerts, "webhook-cert-dir", "/tls", "directory with tls.crt and tls.key of the webhook")
 	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd
 }

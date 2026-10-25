@@ -1,0 +1,144 @@
+{{- if and .Values.operator.enabled .Values.operator.gate.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+{{- $svc := printf "%s-operator-webhook" $fullname }}
+{{- $secret := printf "%s-operator-webhook-tls" $fullname }}
+{{- $dnsNames := list $svc (printf "%s.%s" $svc .Release.Namespace) (printf "%s.%s.svc" $svc .Release.Namespace) }}
+{{- $caBundle := "" }}
+# Scan gate: the operator releases the pods it holds (patch: remove the
+# scheduling gate, pin the images to the scanned digests) and explains why
+# it holds them (events), in every namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-operator-gate
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [patch]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-operator-gate
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-operator-gate
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullname }}-operator
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  selector:
+    {{- include "meles.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+  ports:
+    - {name: webhook, port: 443, targetPort: webhook}
+---
+{{- if .Values.operator.gate.tls.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  secretName: {{ $secret }}
+  dnsNames: {{ $dnsNames | toJson }}
+  issuerRef:
+    {{- required "operator.gate.tls.certManager.issuerRef is required" .Values.operator.gate.tls.certManager.issuerRef | toYaml | nindent 4 }}
+{{- else }}
+{{- $old := dict }}
+{{- with lookup "v1" "Secret" .Release.Namespace $secret }}
+{{- with .data }}{{ if index . "tls.crt" }}{{ $old = . }}{{ end }}{{ end }}
+{{- end }}
+# Self-signed CA and certificate of the webhook; generated once and kept on
+# upgrades.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+type: kubernetes.io/tls
+data:
+{{- if $old }}
+  ca.crt: {{ index $old "ca.crt" }}
+  tls.crt: {{ index $old "tls.crt" }}
+  tls.key: {{ index $old "tls.key" }}
+{{- $caBundle = index $old "ca.crt" }}
+{{- else }}
+{{- $ca := genCA (printf "%s-operator-webhook-ca" $fullname) 3650 }}
+{{- $cert := genSignedCert $svc nil $dnsNames 3650 $ca }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+  tls.crt: {{ $cert.Cert | b64enc }}
+  tls.key: {{ $cert.Key | b64enc }}
+{{- $caBundle = $ca.Cert | b64enc }}
+{{- end }}
+{{- end }}
+---
+# Adds the scheduling gate meles.io/scan to new pods in namespaces labelled
+# meles.io/gate=enforce or audit; the operator removes it once the images
+# are scanned. Never in kube-system or the release namespace: clamd and the
+# operator would wait for their own scan.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $fullname }}-scan-gate
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+  {{- if .Values.operator.gate.tls.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s" .Release.Namespace $secret }}
+  {{- end }}
+webhooks:
+  {{- range $mode := list "enforce" "audit" }}
+  - name: {{ $mode }}.gate.meles.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ $.Values.operator.gate.failurePolicy }}
+    timeoutSeconds: {{ $.Values.operator.gate.timeoutSeconds }}
+    reinvocationPolicy: Never
+    clientConfig:
+      service:
+        name: {{ $svc }}
+        namespace: {{ $.Release.Namespace }}
+        path: /gate/{{ $mode }}
+      {{- if $caBundle }}
+      caBundle: {{ $caBundle }}
+      {{- end }}
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods]
+        operations: [CREATE]
+        scope: Namespaced
+    namespaceSelector:
+      matchLabels:
+        meles.io/gate: {{ $mode }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: {{ concat (list "kube-system" $.Release.Namespace) $.Values.operator.gate.excludeNamespaces | toJson }}
+  {{- end }}
+{{- end }}
