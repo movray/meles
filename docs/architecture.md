@@ -166,6 +166,19 @@ when it finishes.
   nodes; only those run here.
 - Leader election: only one replica scans.
 
+### Status and metrics
+
+The operator serves `/metrics` (Prometheus, controller-runtime's registry)
+and `/status` (JSON, `internal/opstatus`) on port 8080. Only the leader has
+a queue, so the headless service `<release>-operator-metrics` resolves to
+every replica: `meles server --operator-status` asks all of them and shows
+the leader's answer on the Cluster page. The status lives in memory
+(queue, running scans, the last 20 finished scans, totals since the start,
+held pods) and starts empty after a restart; the reports keep the results.
+`/status` names images, namespaces and pods, so the chart's NetworkPolicy
+lets only the server (and `networkPolicy.operatorMetricsFrom`) reach port
+8080.
+
 ### Ignore rules
 
 `MalwareIgnore` (namespaced, for teams) and `ClusterMalwareIgnore` (for
@@ -288,7 +301,7 @@ scan.
 | clamd + proxy | none | TLS port 3310 with token; NetworkPolicy: only pods of the release (plus `networkPolicy.clamdExtraFrom`) |
 | Mirror | none | HTTP, only for clamd (NetworkPolicy) |
 | Server | read `malwarereports` cluster-wide, `patch` for the rescan button (optional) | UI and API without login of its own: oauth2-proxy sidecar or keep internal |
-| Operator | read `pods`, `nodes`, `jobs`; write `malwarereports`; read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it; with the scan gate `patch` on `pods` and `create` on events in all namespaces | health port; with the scan gate the webhook (HTTPS, port 9443) |
+| Operator | read `pods`, `nodes`, `jobs`; write `malwarereports`; read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it; with the scan gate `patch` on `pods` and `create` on events in all namespaces | health port; `/metrics` and `/status` on 8080 (NetworkPolicy: server and `operatorMetricsFrom` only); with the scan gate the webhook (HTTPS, port 9443) |
 | Harbor adapter | none | HTTP API with bearer token |
 
 - No component needs to run as root; the meles image is non-root on

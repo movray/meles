@@ -256,6 +256,8 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret the operator always uses, e.g. a Docker Hub account |
 | `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
+| `operator.serviceMonitor.enabled` | `false` | ServiceMonitor for the operator's `/metrics` (`labels`, `interval`) |
+| `networkPolicy.operatorMetricsFrom` | `[]` | further peers allowed to reach the operator's `/metrics` and `/status`, e.g. Prometheus |
 | `operator.gate.enabled` | `false` | scan gate: hold new pods in labelled namespaces until their images are scanned (see below) |
 | `operator.gate.failOpen` | `true` | release held pods when the scan failed in clamd |
 | `operator.gate.failurePolicy` | `Ignore` | webhook failure policy; `Fail` blocks pod creation in gated namespaces while the operator is down |
@@ -358,6 +360,26 @@ the report page shows the history of the workload, across rollouts for the
 ReplicaSets of a Deployment, and the Cluster page since when each status
 holds (JSON: `/api/cluster/reports/<namespace>/<name>/history`). Everyone who
 can open the UI sees the reports of all namespaces.
+
+Above the reports, the Cluster page shows what the operator does: scans
+running and waiting (by priority), the oldest waiting scan, recent scans
+with errors, and the pods the scan gate holds (JSON:
+`/api/cluster/operator`). The operator serves this at `/status` and
+Prometheus metrics at `/metrics` on port 8080, behind the headless service
+`<release>-operator-metrics`:
+
+| Metric | |
+|---|---|
+| `meles_operator_scan_queue{priority}` | scans waiting: `gated`, `new`, `rescan` |
+| `meles_operator_scans_running` | scans running |
+| `meles_operator_scans_total{status}` | finished scans: `Clean`, `Infected`, `Incomplete`, `Error` |
+| `meles_operator_scan_duration_seconds` | histogram of scan durations |
+| `meles_operator_gate_held_pods` | pods the scan gate holds |
+| `meles_operator_gate_released_total{scan}` | released pods: `complete` or `unscanned` |
+| `meles_operator_leader` | 1 on the replica that scans |
+
+`operator.serviceMonitor.enabled` creates a ServiceMonitor; with network
+policies on, allow Prometheus in `networkPolicy.operatorMetricsFrom`.
 
 The CRD is in `charts/meles/crds/`. Helm installs it with the chart but never
 updates or deletes it; after an upgrade apply it again:
