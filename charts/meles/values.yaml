@@ -21,6 +21,19 @@ scan:
   # keeps each stream in a temporary file in the container while it scans
   # it (up to maxThreads x maxFileSize of ephemeral storage).
   maxFileSize: 768M
+  # Mirrors the server and the operator pull from first, e.g. a Harbor
+  # proxy cache project per upstream registry; the registry itself is the
+  # fallback (as in containerd). Mirrors are trusted for tags, digests are
+  # verified. Registries that are only other names for Docker Hub (e.g.
+  # cr.smallstep.com) need their own entry with the same prefix.
+  #   - docker.io=harbor.example.com/dockerhub
+  #   - quay.io=harbor.example.com/quay
+  registryMirrors: []
+  # Additional CA certificates for registries and mirrors (PEM), e.g. a
+  # private CA that signed Harbor's certificate; the system roots stay.
+  registryCA:
+    configMap: ""
+    key: ca.crt
 
 server:
   enabled: true

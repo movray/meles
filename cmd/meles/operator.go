@@ -127,7 +127,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 				Platforms: platforms, Workers: workers,
 				APIReader: mgr.GetAPIReader(), PullSecretRole: pullRole, ServiceAccount: operatorSA,
 				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RetryIncompleteAfter: retryIncompl, RescanInterval: rescan, Logger: log,
-				Gate: gate, GateFailOpen: gateFailOpen, Insecure: sf.insecure,
+				Gate: gate, GateFailOpen: gateFailOpen, Insecure: sf.insecure, Mirrors: sc.Source.Mirrors,
 				IsLeader: func() bool {
 					select {
 					case <-mgr.Elected():
@@ -180,7 +180,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "rescan-interval", rescan, "gate", gate, "version", version)
+			log.Info("operator starting", "clamd", sf.clamd, "platforms", platforms, "workers", workers, "rescan-interval", rescan, "gate", gate, "registry-mirrors", sf.mirrors, "version", version)
 			return mgr.Start(ctx)
 		},
 	}

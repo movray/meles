@@ -101,6 +101,7 @@ spec:
           args: [server]
           env:
             {{- include "meles.clamdClientEnv" . | nindent 12 }}
+            {{- include "meles.registryEnv" . | nindent 12 }}
             - {name: MELES_DB, value: /data/meles.db}
             {{- if .Values.server.oauth2Proxy.enabled }}
             # Only oauth2-proxy in the same pod may connect.
@@ -153,6 +154,7 @@ spec:
             - {name: data, mountPath: /data}
             - {name: tmp, mountPath: /tmp}
             {{- include "meles.clamdClientMounts" . | nindent 12 }}
+            {{- include "meles.registryMounts" . | nindent 12 }}
             {{- if .Values.server.registryAuthSecret }}
             - {name: docker-config, mountPath: /docker, readOnly: true}
             {{- end }}
@@ -224,6 +226,7 @@ spec:
         - name: tmp
           emptyDir: {}
         {{- include "meles.clamdClientVolumes" . | nindent 8 }}
+        {{- include "meles.registryVolumes" . | nindent 8 }}
         {{- if and .Values.server.oauth2Proxy.enabled .Values.server.oauth2Proxy.providerCA.configMap }}
         - name: provider-ca
           configMap:

@@ -136,7 +136,7 @@ func (r *Reconciler) reconcileGated(ctx context.Context, pod *corev1.Pod, owner 
 func (r *Reconciler) resolveContainer(ctx context.Context, ref string, auth pullAuth) container {
 	rctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
-	repo, digest, err := source.Resolve(rctx, ref, source.Options{Keychain: auth.keychain, Insecure: r.Insecure})
+	repo, digest, err := source.Resolve(rctx, ref, source.Options{Keychain: auth.keychain, Insecure: r.Insecure, Mirrors: r.Mirrors, Logger: r.log()})
 	if err != nil {
 		return container{img: image{repository: repo, reference: ref}, unpullable: r.authHint(err, auth), gated: true}
 	}

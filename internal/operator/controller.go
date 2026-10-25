@@ -101,6 +101,8 @@ type Reconciler struct {
 	GateFailOpen bool
 	// Insecure allows plain HTTP registries when resolving tags.
 	Insecure bool
+	// Mirrors are asked first when resolving tags, as when scanning.
+	Mirrors []source.Mirror
 	// Recorder emits the gate's events on held and released pods.
 	Recorder events.EventRecorder
 	// IsLeader reports whether this replica scans, for the status.

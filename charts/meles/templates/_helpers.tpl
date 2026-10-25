@@ -86,6 +86,35 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{/* Registry mirrors and CA of a pod that pulls images. */}}
+{{- define "meles.registryEnv" -}}
+{{- with .Values.scan.registryMirrors }}
+- {name: MELES_REGISTRY_MIRROR, value: {{ join "," . | quote }}}
+{{- end }}
+{{- if .Values.scan.registryCA.configMap }}
+# Go reads the system roots and every file in SSL_CERT_DIR.
+- {name: SSL_CERT_DIR, value: /registry-ca}
+{{- end }}
+{{- end }}
+
+{{- define "meles.registryMounts" -}}
+{{- if .Values.scan.registryCA.configMap }}
+- {name: registry-ca, mountPath: /registry-ca, readOnly: true}
+{{- end }}
+{{- end }}
+
+{{- define "meles.registryVolumes" -}}
+{{- with .Values.scan.registryCA }}
+{{- if .configMap }}
+- name: registry-ca
+  configMap:
+    name: {{ .configMap }}
+    items:
+      - {key: {{ .key }}, path: ca.crt}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "meles.clamdAddress" -}}
 {{- if include "meles.clamdAuth" . }}
 {{- printf "tls://%s-clamd:3310" (include "meles.fullname" .) }}

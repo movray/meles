@@ -26,6 +26,7 @@ type scanFlags struct {
 	maxLayerSize sizeValue
 	maxFiles     int
 	insecure     bool
+	mirrors      []string
 }
 
 func (f *scanFlags) register(fs *pflag.FlagSet) {
@@ -40,6 +41,7 @@ func (f *scanFlags) register(fs *pflag.FlagSet) {
 	fs.Var(&f.maxLayerSize, "max-layer-size", "fail on layers larger than this (uncompressed)")
 	fs.IntVar(&f.maxFiles, "max-files", 500000, "fail on layers with more entries than this")
 	fs.BoolVar(&f.insecure, "insecure-registry", false, "allow plain HTTP registries")
+	fs.StringSliceVar(&f.mirrors, "registry-mirror", nil, "pull a registry's images from a mirror first, e.g. docker.io=harbor.example.com/dockerhub (a Harbor proxy cache project); repeatable or comma-separated; the registry itself is the fallback")
 }
 
 func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
@@ -57,6 +59,14 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 			return nil, fmt.Errorf("--clamd-ca: %w", err)
 		}
 	}
+	var mirrors []source.Mirror
+	for _, m := range f.mirrors {
+		mm, err := source.ParseMirror(m)
+		if err != nil {
+			return nil, fmt.Errorf("--registry-mirror: %w", err)
+		}
+		mirrors = append(mirrors, mm)
+	}
 	if f.concurrency < 1 {
 		return nil, fmt.Errorf("--concurrency must be at least 1")
 	}
@@ -71,7 +81,7 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 		Limits:      extract.Limits{MaxFileSize: int64(f.maxFileSize), MaxLayerSize: int64(f.maxLayerSize), MaxFiles: f.maxFiles},
 		Concurrency: f.concurrency,
 		Cache:       cache,
-		Source:      source.Options{Insecure: f.insecure},
+		Source:      source.Options{Insecure: f.insecure, Mirrors: mirrors, Logger: slog.Default()},
 		Logger:      slog.Default(),
 	}, nil
 }

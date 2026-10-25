@@ -219,6 +219,19 @@ Without the permission the operator scans anyway and reports `Error` only
 when the registry refuses, with the `kubectl create rolebinding` command in
 the message. `operator.registryAuthSecret` adds one fixed Docker config.
 
+Registry mirrors (`--registry-mirror`, `scan.registryMirrors`) are meles'
+own, in the shape of containerd's: the node configuration is out of reach
+(no kubelet, no CRI). `internal/source` asks each mirror of the image's
+registry in order and the registry itself last; layers then come from
+whoever served the manifest. A mirror may answer a tag with what it has
+cached (Harbor's proxy cache does when the upstream is unreachable), which
+is the image the nodes would pull through the same mirror; for a digest
+meles checks the served digest, so a mirror cannot swap the content of a
+pinned image. The operator scans by digest, and the scan gate pins
+released pods to the digest it resolved, through the mirror as well.
+Reason: Docker Hub's limit for anonymous pulls is per IP and shared with
+the kubelet; rescans through a proxy cache do not use it.
+
 Rejected alternatives: reading images from the nodes (needs root on every
 node) and scanning the running container filesystem (runtime detection, a
 non-goal). meles does not talk to the kubelet or the CRI; the price is a

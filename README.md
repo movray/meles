@@ -103,9 +103,19 @@ environment variables, which win over defaults.
 | `--max-files` | `500000` | hard limit of entries per layer |
 | `--concurrency` | `4` | parallel clamd sessions |
 | `--ignorefile` | | YAML file with ignore rules, see below |
+| `--registry-mirror` | | pull a registry's images from a mirror first, e.g. `docker.io=harbor.example.com/dockerhub`; repeatable |
 
 Registry credentials come from the Docker config (`~/.docker/config.json` or
 `$DOCKER_CONFIG`).
+
+`--registry-mirror registry=host[/path]` pulls images of `registry` from
+`host/path/<repository>` first, e.g. from a Harbor proxy cache project:
+`docker.io=harbor.example.com/dockerhub` pulls `nginx:1.27` as
+`harbor.example.com/dockerhub/library/nginx:1.27`. The registry itself is
+the fallback when the mirror fails, as in containerd, and reports keep the
+original reference. A mirror is trusted for tags; for digests meles checks
+that the mirror serves exactly that digest. Registries that are only other
+names for Docker Hub (such as `cr.smallstep.com`) need their own entry.
 
 ### Ignore rules
 
@@ -241,6 +251,8 @@ Important values (see `charts/meles/values.yaml`):
 | `server.clusterReports.rescan` | `true` | "Rescan" button in the UI (adds `patch` on `malwarereports`) |
 | `server.clusterReports.historyDays` | `365` | keep the history of the reports this many days |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
+| `scan.registryMirrors` | `[]` | mirrors the server and the operator pull from first, e.g. `docker.io=harbor.example.com/dockerhub` (see `--registry-mirror`) |
+| `scan.registryCA.configMap` | `""` | ConfigMap with an additional CA (`key`, default `ca.crt`) for registries and mirrors, e.g. a private CA of Harbor |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
 | `clamd.auth.enabled` | `true` | TLS + token in front of clamd (see below) |
 | `clamd.auth.existingSecret` | `""` | secret with key `token`; empty: generated and kept |
@@ -322,7 +334,11 @@ tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclo
   operator always uses, e.g. a Docker Hub account against its pull rate
   limit or a registry mirror, without any permission on other secrets.
   Credentials that exist only on the nodes (kubelet credential providers)
-  are not covered.
+  are not covered. Mirrors configured on the nodes (containerd,
+  `registries.yaml` of k3s) are not seen either: set the same ones in
+  `scan.registryMirrors`, or the operator pulls from the upstream registry
+  and spends its pull rate limit, e.g. Docker Hub's for anonymous pulls,
+  which it shares with the kubelet.
 
 Ignore rules (see [Ignore rules](#ignore-rules)) live in two resources:
 `MalwareIgnore` for the reports of its namespace, so that teams manage the

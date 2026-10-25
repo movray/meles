@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strings"
 
@@ -93,6 +94,87 @@ type Options struct {
 	Keychain  authn.Keychain
 	// Insecure allows plain HTTP registries (for tests and local registries).
 	Insecure bool
+	// Mirrors are tried in order before the registry itself, which is the
+	// fallback if all fail (as containerd does).
+	Mirrors []Mirror
+	// Logger notes failed mirrors; nil for none.
+	Logger *slog.Logger
+}
+
+// Mirror serves the images of Registry under Prefix, e.g. a Harbor proxy
+// cache project for Docker Hub: docker.io=harbor.example.com/dockerhub
+// pulls docker.io/library/nginx from harbor.example.com/dockerhub/library/nginx.
+// A mirror is trusted for tags; digests are verified.
+type Mirror struct {
+	Registry string
+	Prefix   string
+}
+
+// ParseMirror parses "registry=host[/path]".
+func ParseMirror(s string) (Mirror, error) {
+	reg, prefix, ok := strings.Cut(strings.TrimSpace(s), "=")
+	reg, prefix = strings.TrimSpace(reg), strings.Trim(strings.TrimSpace(prefix), "/")
+	if !ok || reg == "" || prefix == "" || strings.Contains(reg, "/") || strings.Contains(prefix, "://") {
+		return Mirror{}, fmt.Errorf("registry mirror %q: want registry=host[/path], e.g. docker.io=harbor.example.com/dockerhub", s)
+	}
+	return Mirror{Registry: reg, Prefix: prefix}, nil
+}
+
+func (m Mirror) String() string { return m.Registry + "=" + m.Prefix }
+
+// mirrored returns r with its registry replaced by the mirror's prefix, or
+// false if the mirror is not for r's registry.
+func (m Mirror) mirrored(r name.Reference, nopts []name.Option) (name.Reference, bool, error) {
+	reg := m.Registry
+	if reg == "docker.io" {
+		reg = name.DefaultRegistry
+	}
+	if r.Context().RegistryStr() != reg {
+		return nil, false, nil
+	}
+	ref := m.Prefix + "/" + r.Context().RepositoryStr()
+	switch v := r.(type) {
+	case name.Digest:
+		ref += "@" + v.DigestStr()
+	case name.Tag:
+		ref += ":" + v.TagStr()
+	}
+	mr, err := name.ParseReference(ref, nopts...)
+	if err != nil {
+		return nil, false, fmt.Errorf("mirror %s: %w", m, err)
+	}
+	return mr, true, nil
+}
+
+// get fetches the descriptor of r, from its mirrors first.
+func get(ctx context.Context, r name.Reference, nopts []name.Option, opts Options, ropts ...remote.Option) (*remote.Descriptor, error) {
+	var mirrorErrs []string
+	for _, m := range opts.Mirrors {
+		mr, ok, err := m.mirrored(r, nopts)
+		if !ok {
+			if err != nil {
+				mirrorErrs = append(mirrorErrs, err.Error())
+			}
+			continue
+		}
+		desc, err := remote.Get(mr, ropts...)
+		if err == nil {
+			if d, isDigest := r.(name.Digest); isDigest && desc.Digest.String() != d.DigestStr() {
+				err = fmt.Errorf("served %s instead of %s", desc.Digest, d.DigestStr())
+			} else {
+				return desc, nil
+			}
+		}
+		mirrorErrs = append(mirrorErrs, fmt.Sprintf("mirror %s: %v", mr, err))
+		if opts.Logger != nil {
+			opts.Logger.Warn("registry mirror failed, pulling from the registry", "ref", r.String(), "mirror", mr.String(), "err", err)
+		}
+	}
+	desc, err := remote.Get(r, ropts...)
+	if err != nil && len(mirrorErrs) > 0 {
+		return nil, fmt.Errorf("%w (%s)", err, strings.Join(mirrorErrs, "; "))
+	}
+	return desc, err
 }
 
 // Resolve returns the repository and the digest a reference points to now,
@@ -119,6 +201,13 @@ func Resolve(ctx context.Context, ref string, opts Options) (repository, digest 
 	kc := opts.Keychain
 	if kc == nil {
 		kc = authn.DefaultKeychain
+	}
+	if len(opts.Mirrors) > 0 {
+		d, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+		if err != nil {
+			return repository, "", fmt.Errorf("resolve %s: %w", ref, err)
+		}
+		return repository, d.Digest.String(), nil
 	}
 	desc, err := remote.Head(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
 	if err != nil {
@@ -147,7 +236,7 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 	if kc == nil {
 		kc = authn.DefaultKeychain
 	}
-	desc, err := remote.Get(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+	desc, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", ref, err)
 	}
