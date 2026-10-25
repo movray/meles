@@ -103,6 +103,8 @@ type Reconciler struct {
 	Insecure bool
 	// Recorder emits the gate's events on held and released pods.
 	Recorder events.EventRecorder
+	// IsLeader reports whether this replica scans, for the status.
+	IsLeader func() bool
 	Logger   *slog.Logger
 
 	queue  *scanQueue
@@ -112,6 +114,9 @@ type Reconciler struct {
 	mu      sync.Mutex
 	results map[string]result
 	order   []string
+
+	statsMu sync.Mutex
+	stats   stats
 
 	verMu sync.Mutex
 	ver   engine.Version
@@ -155,6 +160,7 @@ func (r *Reconciler) remember(key string, res result) {
 // report of their workload is deleted or annotated with meles.io/rescan.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.queue = newScanQueue()
+	r.stats.started = time.Now()
 	r.events = make(chan event.GenericEvent, maxQueued)
 	// Scans run on the leader only, once the caches are filled.
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
@@ -171,7 +177,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				return !slices.Equal(imageIDs(e.ObjectOld.(*corev1.Pod)), imageIDs(e.ObjectNew.(*corev1.Pod)))
 			},
-			DeleteFunc: func(event.DeleteEvent) bool { return false },
+			// A held pod that is deleted leaves the status.
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				p, ok := e.Object.(*corev1.Pod)
+				return ok && gated(p)
+			},
 		})).
 		Watches(&v1alpha1.MalwareReport{}, handler.EnqueueRequestsFromMapFunc(r.podsOfReport), builder.WithPredicates(predicate.Funcs{
 			CreateFunc:  func(e event.CreateEvent) bool { return rescanRequested(e.Object) },
@@ -241,6 +251,9 @@ func (r *Reconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.Client.Get(ctx, req.NamespacedName, &pod); err != nil {
 		// A deleted pod's reports belong to its workload and are garbage
 		// collected with it.
+		if apierrors.IsNotFound(err) {
+			r.recordHeld(req.NamespacedName, "", nil)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if pod.DeletionTimestamp != nil {

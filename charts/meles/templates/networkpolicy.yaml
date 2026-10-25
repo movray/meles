@@ -73,4 +73,37 @@ spec:
       ports:
         - {protocol: TCP, port: {{ include "meles.serverPodPort" . }}}
 {{- end }}
+{{- if .Values.operator.enabled }}
+---
+# The operator's /status names images, namespaces and pods: port 8080 only
+# for the server and operatorMetricsFrom. Health probes and the scan gate's
+# webhook (called by the API server, which no selector matches) stay open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: operator
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "meles.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: server
+        {{- with .Values.networkPolicy.operatorMetricsFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8080}
+    - ports:
+        - {protocol: TCP, port: 8081}
+        - {protocol: TCP, port: 9443}
+{{- end }}
 {{- end }}

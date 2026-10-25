@@ -21,6 +21,7 @@ import (
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
 	"git.itknecht.de/sugras/meles/internal/engine/fake"
 	"git.itknecht.de/sugras/meles/internal/extract"
+	"git.itknecht.de/sugras/meles/internal/opstatus"
 	"git.itknecht.de/sugras/meles/internal/runner"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/schedule"
@@ -407,5 +408,47 @@ func TestHumanSchedule(t *testing.T) {
 		if got := humanSchedule(in); got != want {
 			t.Errorf("humanSchedule(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+type fakeOperator struct {
+	st  *opstatus.Status
+	err error
+}
+
+func (f *fakeOperator) Fetch(context.Context) (*opstatus.Status, error) { return f.st, f.err }
+
+func TestClusterOperator(t *testing.T) {
+	started := time.Now().Add(-time.Hour)
+	finished := time.Now().Add(-time.Minute)
+	op := &fakeOperator{st: &opstatus.Status{
+		Pod: "meles-operator-abc", Version: "test", Leader: true, StartedAt: started, Workers: 2,
+		Queued:  map[string]int{"gated": 1, "new": 2, "rescan": 7},
+		Running: []opstatus.Scan{{Image: "docker.io/library/nextcloud@sha256:1", Priority: "rescan", Pods: 2, Started: time.Now().Add(-9 * time.Minute)}},
+		Recent:  []opstatus.Scan{{Image: "docker.io/acme/web@sha256:2", Status: v1alpha1.StatusError, Error: "UNAUTHORIZED", Finished: &finished, Duration: time.Second}},
+		Totals:  map[string]int{v1alpha1.StatusClean: 40},
+		Gate: opstatus.Gate{Enabled: true, Held: []opstatus.Held{{Namespace: "shop", Pod: "miner-7d9f", Mode: "enforce", Since: started, Reasons: []string{"app: 1 findings in acme/miner:1"}}},
+			Released: opstatus.Counter{Scanned: 5, Unscanned: 1}},
+	}}
+	e := newEnv(t, func(c *Config) { c.Cluster, c.Operator = &fakeReports{}, op })
+
+	_, out := e.do("GET", "/cluster", "", "")
+	for _, want := range []string{"meles-operator-abc", "1 of 2 workers", "10", "Held by the scan gate", "miner-7d9f", "1 findings in acme/miner:1", "nextcloud@sha256:1", "UNAUTHORIZED", "1 unscanned"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("cluster page without %q", want)
+		}
+	}
+	resp, out := e.do("GET", "/api/cluster/operator", "", "")
+	var st opstatus.Status
+	if err := json.Unmarshal([]byte(out), &st); resp.StatusCode != http.StatusOK || err != nil || st.Pod != "meles-operator-abc" {
+		t.Errorf("API: %d %v %+v", resp.StatusCode, err, st)
+	}
+
+	op.st, op.err = nil, fmt.Errorf("dial tcp: connection refused")
+	if _, out := e.do("GET", "/cluster", "", ""); !strings.Contains(out, "not reachable: dial tcp: connection refused") {
+		t.Error("unreachable operator not shown")
+	}
+	if resp, _ := e.do("GET", "/api/cluster/operator", "", ""); resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("API with unreachable operator: %d", resp.StatusCode)
 	}
 }

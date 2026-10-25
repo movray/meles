@@ -53,7 +53,9 @@ type scanJob struct {
 	img            image
 	prio           priority
 	running        bool
-	waiters        map[types.NamespacedName]struct{}
+	// queuedAt is when the scan was requested, started when it began.
+	queuedAt, started time.Time
+	waiters           map[types.NamespacedName]struct{}
 }
 
 func newScanQueue() *scanQueue {
@@ -72,16 +74,18 @@ func (q *scanQueue) request(key, platforms string, img image, prio priority, pod
 			q.queued[j.prio] = slices.DeleteFunc(q.queued[j.prio], func(o *scanJob) bool { return o == j })
 			j.prio = prio
 			q.queued[prio] = append(q.queued[prio], j)
+			q.updateMetrics()
 		}
 		return nil
 	}
 	if q.n >= maxQueued {
 		return errQueueFull
 	}
-	j := &scanJob{key: key, platforms: platforms, img: img, prio: prio, waiters: map[types.NamespacedName]struct{}{pod: {}}}
+	j := &scanJob{key: key, platforms: platforms, img: img, prio: prio, queuedAt: time.Now(), waiters: map[types.NamespacedName]struct{}{pod: {}}}
 	q.pending[key] = j
 	q.queued[prio] = append(q.queued[prio], j)
 	q.n++
+	q.updateMetrics()
 	q.wake()
 	return nil
 }
@@ -104,7 +108,8 @@ func (q *scanQueue) next() *scanJob {
 		j := q.queued[p][0]
 		q.queued[p] = q.queued[p][1:]
 		q.n--
-		j.running = true
+		j.running, j.started = true, time.Now()
+		q.updateMetrics()
 		if q.n > 0 {
 			q.wake() // for the next idle worker
 		}
@@ -134,6 +139,7 @@ func (q *scanQueue) done(key string) []types.NamespacedName {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	delete(q.pending, key)
+	q.updateMetrics()
 	return out
 }
 
@@ -164,6 +170,7 @@ func (r *Reconciler) runScans(ctx context.Context, workers int) error {
 // the waiting pods write it as Error, and it is retried after RetryAfter.
 func (r *Reconciler) runScan(ctx context.Context, j *scanJob) {
 	res := r.scan(ctx, j.img, j.platforms, r.queue.waiters(j.key))
+	r.recordScan(j, res)
 	r.remember(j.key, res)
 	if res.summary.Status != v1alpha1.StatusError {
 		r.propagate(ctx, j.img.digest, res)

@@ -261,6 +261,8 @@ button.danger { background: var(--critical); border-color: var(--critical); colo
   padding: 6px 10px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); z-index: 5;
 }
 .table-view table { max-width: 520px; }
+.table-view.wide table { max-width: none; }
+.card h3 { font-size: 0.92rem; font-weight: 650; margin: 18px 0 6px; }
 
 @media (max-width: 640px) {
   .engine { margin-left: 0; width: 100%; padding-bottom: 8px; }

@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 
 	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"git.itknecht.de/sugras/meles/internal/opstatus"
 	"git.itknecht.de/sugras/meles/internal/schedule"
 	"git.itknecht.de/sugras/meles/internal/source"
 	"git.itknecht.de/sugras/meles/internal/store"
@@ -519,16 +520,26 @@ func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, errStatus(err), err)
 		return
 	}
+	var op *opstatus.Status
+	var opErr error
+	if s.operator != nil {
+		if op, opErr = s.operator.Fetch(r.Context()); opErr != nil {
+			s.log.Warn("operator status", "err", opErr)
+		}
+	}
 	s.render(w, http.StatusOK, "cluster", page{Title: "Cluster", Nav: "cluster", Data: map[string]any{
-		"Days":       days,
-		"DayOptions": []int{7, 30, 90},
-		"Daily":      daily,
-		"Reports":    shown,
-		"Since":      since,
-		"Counts":     countReports(reps),
-		"Filter":     f,
-		"Statuses":   clusterStatuses,
-		"Namespaces": namespaces(reps),
+		"Operator":    op,
+		"OperatorOn":  s.operator != nil,
+		"OperatorErr": opErr,
+		"Days":        days,
+		"DayOptions":  []int{7, 30, 90},
+		"Daily":       daily,
+		"Reports":     shown,
+		"Since":       since,
+		"Counts":      countReports(reps),
+		"Filter":      f,
+		"Statuses":    clusterStatuses,
+		"Namespaces":  namespaces(reps),
 	}})
 }
 
@@ -605,4 +616,18 @@ func (s *Server) apiClusterReports(w http.ResponseWriter, r *http.Request) {
 	}
 	sortReports(reps)
 	writeJSON(w, http.StatusOK, reps)
+}
+
+// apiOperator returns the operator's status as JSON.
+func (s *Server) apiOperator(w http.ResponseWriter, r *http.Request) {
+	if s.operator == nil {
+		writeJSONError(w, http.StatusNotFound, errors.New("the operator status is not configured (meles server --operator-status)"))
+		return
+	}
+	st, err := s.operator.Fetch(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }

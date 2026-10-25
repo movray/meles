@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
@@ -38,6 +39,7 @@ func newOperatorCmd() *cobra.Command {
 		pullRole     string
 		operatorSA   string
 		healthListen string
+		metricsAddr  string
 		leaderElect  bool
 		leaderNS     string
 		cacheSize    int
@@ -102,9 +104,13 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 			if err := v1alpha1.AddToScheme(scheme); err != nil {
 				return err
 			}
+			// The reconciler is created after the manager; the handler is
+			// needed before.
+			var r *operator.Reconciler
+			status := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { r.StatusHandler().ServeHTTP(w, req) })
 			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 				Scheme:                  scheme,
-				Metrics:                 metricsserver.Options{BindAddress: "0"},
+				Metrics:                 metricsserver.Options{BindAddress: metricsAddr, ExtraHandlers: map[string]http.Handler{"/status": status}},
 				HealthProbeBindAddress:  healthListen,
 				LeaderElection:          leaderElect,
 				LeaderElectionID:        "meles-operator.meles.io",
@@ -116,13 +122,25 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 			if err != nil {
 				return fmt.Errorf("create manager: %w", err)
 			}
-			r := &operator.Reconciler{
+			r = &operator.Reconciler{
 				Client: mgr.GetClient(), Scanner: sc, Engine: sc.Engine, Version: version,
 				Platforms: platforms, Workers: workers,
 				APIReader: mgr.GetAPIReader(), PullSecretRole: pullRole, ServiceAccount: operatorSA,
 				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RetryIncompleteAfter: retryIncompl, RescanInterval: rescan, Logger: log,
 				Gate: gate, GateFailOpen: gateFailOpen, Insecure: sf.insecure,
+				IsLeader: func() bool {
+					select {
+					case <-mgr.Elected():
+						return true
+					default:
+						return false
+					}
+				},
 			}
+			go func() {
+				<-mgr.Elected()
+				operator.SetLeader()
+			}()
 			if gate {
 				r.Recorder = mgr.GetEventRecorder("meles-operator")
 				operator.RegisterGateWebhooks(mgr)
@@ -174,6 +192,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 	cmd.Flags().DurationVar(&prune, "prune-interval", 30*time.Minute, "delete reports of ReplicaSets, StatefulSets and DaemonSets without pods this often; 0 disables")
 	cmd.Flags().DurationVar(&rescan, "rescan-interval", 24*time.Hour, "rescan images when the signature database changed, at most this often per image; 0 disables")
 	cmd.Flags().StringVar(&healthListen, "health-listen", ":8081", "listen address of /healthz and /readyz")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-listen", ":8080", "listen address of /metrics (Prometheus) and /status (JSON, read by meles server); 0 disables")
 	cmd.Flags().BoolVar(&leaderElect, "leader-elect", true, "use leader election, so that only one replica scans")
 	cmd.Flags().StringVar(&leaderNS, "leader-election-namespace", "", "namespace of the leader election lease; default: the pod's namespace")
 	cmd.Flags().IntVar(&cacheSize, "cache-layers", 2000, "layer results kept in memory")

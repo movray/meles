@@ -175,6 +175,7 @@ spec:
             {{- end }}
           ports:
             - {name: health, containerPort: 8081}
+            - {name: metrics, containerPort: 8080}
             {{- if .Values.operator.gate.enabled }}
             - {name: webhook, containerPort: 9443}
             {{- end }}
@@ -214,4 +215,41 @@ spec:
           secret:
             secretName: {{ $fullname }}-operator-webhook-tls
         {{- end }}
+---
+# Headless: the name resolves to every replica, so that meles server finds
+# the leader's /status; Prometheus scrapes /metrics of each.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-operator-metrics
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  clusterIP: None
+  selector:
+    {{- include "meles.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+  ports:
+    - {name: metrics, port: 8080, targetPort: metrics}
+{{- if .Values.operator.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+    {{- with .Values.operator.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "meles.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: operator
+  endpoints:
+    - {port: metrics, path: /metrics, interval: {{ .Values.operator.serviceMonitor.interval }}}
+{{- end }}
 {{- end }}

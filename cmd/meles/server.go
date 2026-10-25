@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"git.itknecht.de/sugras/meles/internal/opstatus"
 	"git.itknecht.de/sugras/meles/internal/runner"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/schedule"
@@ -35,6 +36,7 @@ func newServerCmd() *cobra.Command {
 		rescan      bool
 		clusterName string
 		historyDays int
+		opStatus    string
 	)
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -44,7 +46,10 @@ cron schedule; every run is stored with its full report in a SQLite database.
 
 With --cluster-reports it also shows the MalwareReports of the meles operator,
 read from the Kubernetes API (KUBECONFIG or, in a pod, its service account),
-and records every change in the database as their history.
+and records every change in the database as their history. --operator-status
+names the operator's headless metrics service (e.g.
+http://meles-operator-metrics.meles:8080); the Cluster page then shows what the
+operator does: its queue, running scans and the pods its scan gate holds.
 
 The UI has no login of its own: expose it only inside the cluster or behind an
 authenticating proxy (e.g. oauth2-proxy).`,
@@ -97,6 +102,9 @@ authenticating proxy (e.g. oauth2-proxy).`,
 			}
 			if reports != nil {
 				cfg.Cluster, cfg.ClusterRescan, cfg.ClusterName = reports, rescan, clusterName
+				if opStatus != "" {
+					cfg.Operator = &opstatus.Client{URL: opStatus}
+				}
 			}
 			srv, err := server.New(cfg)
 			if err != nil {
@@ -152,6 +160,7 @@ authenticating proxy (e.g. oauth2-proxy).`,
 	cmd.Flags().BoolVar(&cluster, "cluster-reports", false, "show the MalwareReports of the meles operator (needs get/list/watch on malwarereports.meles.io)")
 	cmd.Flags().StringVar(&clusterName, "cluster-name", "", "with --cluster-reports: name of the cluster in the history (for several clusters later)")
 	cmd.Flags().IntVar(&historyDays, "history-days", 365, "with --cluster-reports: keep the history of the reports this many days (the last event of each report is kept)")
+	cmd.Flags().StringVar(&opStatus, "operator-status", "", "with --cluster-reports: URL of the operator's headless metrics service, e.g. http://meles-operator-metrics.meles:8080; shows its queue and held pods")
 	cmd.Flags().BoolVar(&rescan, "cluster-rescan", true, "with --cluster-reports: allow requesting a rescan from the UI (needs patch on malwarereports.meles.io)")
 	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd

@@ -93,6 +93,7 @@ func (s *Server) funcs() template.FuncMap {
 		"ago":   ago,
 		"until": until,
 		"dur":   formatDuration,
+		"since": func(t time.Time) time.Duration { return time.Since(t) },
 		"short": shortDigest,
 		"findingStatus": func(f scan.Finding) string {
 			return report.Status(f)

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"git.itknecht.de/sugras/meles/internal/engine"
+	"git.itknecht.de/sugras/meles/internal/opstatus"
 	"git.itknecht.de/sugras/meles/internal/runner"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/schedule"
@@ -39,6 +40,7 @@ type Server struct {
 	rescan    bool
 	// clusterName tags the history of the cluster's reports.
 	clusterName string
+	operator    OperatorStatus
 
 	mu           sync.Mutex
 	engineStatus EngineStatus
@@ -69,6 +71,14 @@ type Config struct {
 	// ClusterName tags the history of the cluster's reports, for several
 	// clusters later; empty for one.
 	ClusterName string
+	// Operator, if set, shows what the operator does on the Cluster page.
+	Operator OperatorStatus
+}
+
+// OperatorStatus fetches the status of the meles operator;
+// *opstatus.Client implements it.
+type OperatorStatus interface {
+	Fetch(ctx context.Context) (*opstatus.Status, error)
 }
 
 // New returns a server.
@@ -85,6 +95,7 @@ func New(c Config) (*Server, error) {
 		cluster:     c.Cluster,
 		rescan:      c.ClusterRescan,
 		clusterName: c.ClusterName,
+		operator:    c.Operator,
 	}
 	if s.loc == nil {
 		s.loc = time.Local
@@ -177,6 +188,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/report", s.handleRunReport)
 	mux.HandleFunc("GET /api/cluster/reports", s.apiClusterReports)
 	mux.HandleFunc("GET /api/cluster/reports/{namespace}/{name}/history", s.apiClusterHistory)
+	mux.HandleFunc("GET /api/cluster/operator", s.apiOperator)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ping(r.Context()); err != nil {

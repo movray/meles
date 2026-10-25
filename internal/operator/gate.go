@@ -108,12 +108,19 @@ func (r *Reconciler) reconcileGated(ctx context.Context, pod *corev1.Pod, owner 
 	if len(held) > 0 {
 		r.event(pod, corev1.EventTypeWarning, "ScanGateHeld", "Hold", "held by the meles scan gate (%s): %s", mode, strings.Join(held, "; "))
 		r.log().Info("pod held", "namespace", pod.Namespace, "pod", pod.Name, "mode", mode, "reasons", held)
+		reasons := make([]string, len(held))
+		for i, h := range held {
+			reasons[i] = statusReason(h)
+		}
+		r.recordHeld(client.ObjectKeyFromObject(pod), mode, reasons)
 		return ctrl.Result{RequeueAfter: requeue}, nil
 	}
 
 	if err := r.release(ctx, pod, resolved); err != nil {
 		return ctrl.Result{}, err
 	}
+	r.recordHeld(client.ObjectKeyFromObject(pod), "", nil)
+	r.recordReleased(len(unscanned) > 0)
 	if len(unscanned) > 0 {
 		r.event(pod, corev1.EventTypeWarning, "ScanGateReleasedUnscanned", "Release", "released by the meles scan gate without a complete scan: %s", strings.Join(unscanned, "; "))
 		r.log().Warn("pod released unscanned", "namespace", pod.Namespace, "pod", pod.Name, "mode", mode, "errors", unscanned)

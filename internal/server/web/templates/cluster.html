@@ -30,6 +30,67 @@
   </div>
 </section>
 
+{{if $d.OperatorOn}}
+<section class="card" aria-labelledby="op-head">
+  <div class="card-head">
+    <h2 id="op-head">Operator</h2>
+    {{with $d.Operator}}<span class="sub">{{.Pod}} · {{.Version}}{{with .Engine}} · {{.}}{{end}} · running since <span title="{{time .StartedAt}}">{{ago .StartedAt}}</span></span>{{end}}
+  </div>
+  {{if $d.OperatorErr}}
+  <p class="note">The operator's status is not reachable: {{$d.OperatorErr}}</p>
+  {{else}}{{$o := $d.Operator}}
+  <dl class="facts">
+    <div><dt>Scanning</dt><dd>{{len $o.Running}} of {{$o.Workers}} workers</dd></div>
+    <div><dt>Waiting</dt><dd>{{$o.QueuedTotal}}{{if $o.QueuedTotal}} <span class="sub">({{index $o.Queued "gated"}} held pods, {{index $o.Queued "new"}} new, {{index $o.Queued "rescan"}} rescans)</span>{{end}}</dd></div>
+    <div><dt>Oldest waiting</dt><dd>{{with $o.OldestQueued}}<span title="{{time .}}">{{dur (since .)}}</span>{{else}}–{{end}}</dd></div>
+    <div><dt>Scans since start</dt><dd>{{index $o.Totals "Clean"}} clean · {{index $o.Totals "Infected"}} infected · {{index $o.Totals "Incomplete"}} incomplete · {{index $o.Totals "Error"}} errors</dd></div>
+    <div><dt>Scan gate</dt><dd>{{if $o.Gate.Enabled}}on · {{len $o.Gate.Held}} held · {{$o.Gate.Released.Scanned}} released{{with $o.Gate.Released.Unscanned}} · <strong>{{.}} unscanned</strong>{{end}}{{else}}off{{end}}</dd></div>
+  </dl>
+  {{if $o.Gate.Held}}
+  <h3>Held by the scan gate</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Pod</th><th>Mode</th><th>Held for</th><th>Reason</th></tr></thead>
+    <tbody>{{range $o.Gate.Held}}
+    <tr><td class="ref">{{.Namespace}} / <code>{{.Pod}}</code></td><td>{{.Mode}}</td><td><span title="{{time .Since}}">{{dur (since .Since)}}</span></td><td>{{range .Reasons}}<div>{{.}}</div>{{end}}</td></tr>
+    {{end}}</tbody>
+  </table>
+  </div>
+  {{end}}
+  {{if $o.Running}}
+  <h3>Running</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Image</th><th>Priority</th><th class="num">Running for</th><th class="num">Pods waiting</th></tr></thead>
+    <tbody>{{range $o.Running}}
+    <tr><td class="ref"><code>{{.Image}}</code></td><td>{{.Priority}}</td><td class="num"><span title="{{time .Started}}">{{dur (since .Started)}}</span></td><td class="num">{{.Pods}}</td></tr>
+    {{end}}</tbody>
+  </table>
+  </div>
+  {{end}}
+  {{if $o.Recent}}
+  <details class="table-view wide">
+    <summary>Recent scans</summary>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Result</th><th>Image</th><th>Priority</th><th class="num">Duration</th><th>Finished</th></tr></thead>
+      <tbody>{{range $o.Recent}}
+      <tr>
+        <td>{{template "badge" (clusterStatus .Status)}}</td>
+        <td class="ref"><code>{{.Image}}</code>{{with .Error}}<div class="sub">{{.}}</div>{{end}}</td>
+        <td>{{.Priority}}</td>
+        <td class="num">{{dur .Duration}}</td>
+        <td>{{with .Finished}}<span title="{{time .}}">{{ago .}}</span>{{end}}</td>
+      </tr>
+      {{end}}</tbody>
+    </table>
+    </div>
+  </details>
+  {{end}}
+  {{end}}
+</section>
+{{end}}
+
 <section class="card">
   <div class="card-head">
     <h2>Workloads per day</h2>

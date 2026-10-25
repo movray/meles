@@ -297,6 +297,15 @@ operator:
       certManager:
         enabled: false
         issuerRef: {}
+  # The operator serves /metrics (Prometheus) and /status (its queue,
+  # running scans and held pods, shown by the server) on port 8080, behind
+  # the headless service <release>-operator-metrics. A ServiceMonitor for
+  # the Prometheus operator:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # Labels your Prometheus selects ServiceMonitors by, e.g. release: kube-prometheus-stack.
+    labels: {}
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:
@@ -360,3 +369,8 @@ networkPolicy:
   # NetworkPolicyPeers allowed to reach the server, e.g. the ingress
   # controller. Empty: no restriction.
   serverFrom: []
+  # NetworkPolicyPeers allowed to scrape the operator's /metrics and /status
+  # (port 8080) besides the server, e.g. Prometheus:
+  #   - namespaceSelector:
+  #       matchLabels: {kubernetes.io/metadata.name: monitoring}
+  operatorMetricsFrom: []
