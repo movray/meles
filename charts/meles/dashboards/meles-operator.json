@@ -1116,7 +1116,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "process_resident_memory_bytes{job=~\"$job\"}",
+          "expr": "process_resident_memory_bytes and on (job, pod) meles_operator_leader{job=~\"$job\"}",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }

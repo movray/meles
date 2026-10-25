@@ -257,6 +257,7 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
 | `operator.serviceMonitor.enabled` | `false` | ServiceMonitor for the operator's `/metrics` (`labels`, `interval`) |
+| `operator.grafanaDashboard.enabled` | `false` | Grafana dashboard as a ConfigMap for the sidecar (`labels`, default `grafana_dashboard: "1"`; `namespace`, `annotations`) |
 | `networkPolicy.operatorMetricsFrom` | `[]` | further peers allowed to reach the operator's `/metrics` and `/status`, e.g. Prometheus |
 | `operator.gate.enabled` | `false` | scan gate: hold new pods in labelled namespaces until their images are scanned (see below) |
 | `operator.gate.failOpen` | `true` | release held pods when the scan failed in clamd |
@@ -377,9 +378,27 @@ Prometheus metrics at `/metrics` on port 8080, behind the headless service
 | `meles_operator_gate_held_pods` | pods the scan gate holds |
 | `meles_operator_gate_released_total{scan}` | released pods: `complete` or `unscanned` |
 | `meles_operator_leader` | 1 on the replica that scans |
+| `meles_operator_reports{namespace,status}` | MalwareReports in the cluster (leader only) |
 
-`operator.serviceMonitor.enabled` creates a ServiceMonitor; with network
-policies on, allow Prometheus in `networkPolicy.operatorMetricsFrom`.
+`operator.serviceMonitor.enabled` creates a ServiceMonitor (with
+`honorLabels`, so `namespace` of `meles_operator_reports` stays the
+report's); with network policies on, allow Prometheus in
+`networkPolicy.operatorMetricsFrom`. `operator.grafanaDashboard.enabled`
+adds a Grafana dashboard (reports, queue, scans, scan gate) as a ConfigMap
+for Grafana's dashboard sidecar, as in kube-prometheus-stack; the JSON is
+in `charts/meles/dashboards/` for importing it by hand.
+
+```yaml
+operator:
+  serviceMonitor: {enabled: true}
+  grafanaDashboard: {enabled: true}
+networkPolicy:
+  operatorMetricsFrom:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: monitoring}
+      podSelector:
+        matchLabels: {app.kubernetes.io/name: prometheus}
+```
 
 The CRD is in `charts/meles/crds/`. Helm installs it with the chart but never
 updates or deletes it; after an upgrade apply it again:

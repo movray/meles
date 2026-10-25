@@ -179,6 +179,14 @@ held pods) and starts empty after a restart; the reports keep the results.
 lets only the server (and `networkPolicy.operatorMetricsFrom`) reach port
 8080.
 
+`meles_operator_reports{namespace,status}` is a collector that counts the
+MalwareReports in the informer cache at each scrape, on the leader only
+(every replica caches them; one set of series avoids double counts in
+`sum`). It shows the state of the cluster, while the other metrics only
+count since the start. Its `namespace` label is the report's, as in
+kube-state-metrics, hence `honorLabels` in the ServiceMonitor. The chart's
+Grafana dashboard (`charts/meles/dashboards/`) builds on these metrics.
+
 ### Ignore rules
 
 `MalwareIgnore` (namespaced, for teams) and `ClusterMalwareIgnore` (for
