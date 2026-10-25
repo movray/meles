@@ -144,3 +144,18 @@ or operator.enabled if that is not set.
 {{- if kindIs "invalid" $on }}{{ $on = .Values.operator.enabled }}{{ end -}}
 {{- if and .Values.server.enabled $on }}true{{ end -}}
 {{- end }}
+
+{{/*
+URL of the web UI, for links in alerts: operator.prometheusRule.uiURL, else
+from the server's ingress or HTTPRoute; empty if none is known.
+*/}}
+{{- define "meles.uiURL" -}}
+{{- $s := .Values.server }}
+{{- if .Values.operator.prometheusRule.uiURL }}
+{{- trimSuffix "/" .Values.operator.prometheusRule.uiURL }}
+{{- else if and $s.enabled $s.ingress.enabled $s.ingress.host }}
+{{- printf "http%s://%s" (ternary "s" "" (not (empty $s.ingress.tls))) $s.ingress.host }}
+{{- else if and $s.enabled $s.httpRoute.enabled $s.httpRoute.hostnames }}
+{{- printf "https://%s" (first $s.httpRoute.hostnames) }}
+{{- end }}
+{{- end }}

@@ -5,22 +5,30 @@ tests:
   - name: infected and errors by namespace
     interval: 1m
     input_series:
-      - series: 'meles_operator_reports{job="meles-operator-metrics",namespace="shop",status="Infected"}'
+      - series: 'meles_operator_infected{job="meles-operator-metrics",namespace="shop",report="replicaset-web-5d8f-app",workload_kind="Deployment",workload="web",container="app",image="reg/web:1.2"}'
+        values: '2x10'
+      - series: 'meles_operator_infected{job="meles-operator-metrics",namespace="shop",report="cronjob-backup-tar",workload_kind="CronJob",workload="backup",container="tar",image="reg/tools:3"}'
         values: '1x10'
       - series: 'meles_operator_reports{job="meles-operator-metrics",namespace="shop",status="Clean"}'
         values: '5x10'
       - series: 'meles_operator_reports{job="meles-operator-metrics",namespace="db",status="Error"}'
         values: '1x420'
-      - series: 'meles_operator_reports{job="other",namespace="db",status="Infected"}'
+      - series: 'meles_operator_infected{job="other",namespace="db",report="x",workload_kind="Pod",workload="x",container="x",image="x"}'
         values: '1x10'
     alert_rule_test:
       - eval_time: 1m
         alertname: MelesInfectedWorkload
         exp_alerts:
-          - exp_labels: {severity: critical, namespace: shop}
+          - exp_labels: {severity: critical, namespace: shop, report: replicaset-web-5d8f-app, workload_kind: Deployment, workload: web, container: app, image: "reg/web:1.2"}
             exp_annotations:
-              summary: Malware found in images running in shop.
-              description: "1 MalwareReports in shop are Infected. See kubectl get malwarereports -n shop; a false positive belongs in a MalwareIgnore with a reason."
+              summary: Malware found in Deployment shop/web.
+              description: "Container app of Deployment shop/web runs reg/web:1.2, findings: 2. Details: kubectl -n shop get malwarereport replicaset-web-5d8f-app -o yaml. A false positive belongs in a MalwareIgnore with a reason."
+              url: https://meles.example/cluster/shop/replicaset-web-5d8f-app
+          - exp_labels: {severity: critical, namespace: shop, report: cronjob-backup-tar, workload_kind: CronJob, workload: backup, container: tar, image: "reg/tools:3"}
+            exp_annotations:
+              summary: Malware found in CronJob shop/backup.
+              description: "Container tar of CronJob shop/backup runs reg/tools:3, findings: 1. Details: kubectl -n shop get malwarereport cronjob-backup-tar -o yaml. A false positive belongs in a MalwareIgnore with a reason."
+              url: https://meles.example/cluster/shop/cronjob-backup-tar
       - eval_time: 5h
         alertname: MelesScanErrors
         exp_alerts: []
@@ -30,7 +38,8 @@ tests:
           - exp_labels: {severity: warning, namespace: db}
             exp_annotations:
               summary: Images in db could not be scanned.
-              description: "1 MalwareReports in db are Error for longer than the operator's retries: those images are not scanned. The report's message names the cause, e.g. a refused pull."
+              description: "MalwareReports in Error in db: 1, for longer than the operator's retries, so those images are not scanned. The report's error names the cause, e.g. a refused pull."
+              url: https://meles.example/cluster?namespace=db&status=error
 
   - name: operator down and without leader
     interval: 1m
@@ -57,6 +66,7 @@ tests:
             exp_annotations:
               summary: No meles operator replica is the leader.
               description: "The operator runs, but no replica holds the leader lease, so nothing is scanned."
+              url: https://meles.example/cluster
 
   - name: operator never scraped
     interval: 1m
@@ -88,7 +98,8 @@ tests:
           - exp_labels: {severity: warning}
             exp_annotations:
               summary: Image scans wait, but none finished for 30 minutes.
-              description: "3 scans are queued and no scan finished within 30 minutes. Check clamd and the operator's log."
+              description: "Queued scans: 3, and no scan finished within 30 minutes. Check clamd and the operator's log."
+              url: https://meles.example/cluster
 
   - name: scan gate
     interval: 1m
@@ -107,7 +118,8 @@ tests:
           - exp_labels: {severity: warning}
             exp_annotations:
               summary: The meles scan gate holds pods.
-              description: "The scan gate holds 2 pods (for at least as long as this alert waited): an image is Infected, cannot be resolved or pulled, or (enforce) was scanned incompletely. The Cluster page of meles server and the ScanGateHeld events name the reasons."
+              description: "Pods held by the scan gate: 2 (for at least as long as this alert waited). An image is Infected, cannot be resolved or pulled, or (enforce) was scanned incompletely. The Cluster page of meles server and the ScanGateHeld events name the reasons."
+              url: https://meles.example/cluster
       - eval_time: 12m
         alertname: MelesGateReleasedUnscanned
         exp_alerts:
@@ -115,6 +127,7 @@ tests:
             exp_annotations:
               summary: The meles scan gate released pods without a complete scan.
               description: "The scan gate released pods without a complete scan (an outage of clamd with failOpen, or audit mode). The ScanGateReleasedUnscanned events name the pods."
+              url: https://meles.example/cluster
       - eval_time: 35m
         alertname: MelesGateReleasedUnscanned
         exp_alerts: []

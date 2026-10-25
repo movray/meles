@@ -4,25 +4,29 @@
 {{- /* job is the metrics service's name; the namespace label of
 meles_operator_reports is the report's (honorLabels), so it selects by job. */}}
 {{- $job := printf "job=\"%s-operator-metrics\"" $fullname }}
+{{- $ui := include "meles.uiURL" . }}
 {{- $rules := list }}
 {{- $rules = append $rules (dict
   "alert" "MelesInfectedWorkload"
-  "expr" (printf "sum by (namespace) (meles_operator_reports{%s,status=\"Infected\"}) > 0" $job)
+  "expr" (printf "max by (namespace, report, workload_kind, workload, container, image) (meles_operator_infected{%s}) > 0" $job)
   "for" "0m" "severity" "critical"
-  "summary" "Malware found in images running in {{ $labels.namespace }}."
-  "description" "{{ $value }} MalwareReports in {{ $labels.namespace }} are Infected. See kubectl get malwarereports -n {{ $labels.namespace }}; a false positive belongs in a MalwareIgnore with a reason.") }}
+  "summary" "Malware found in {{ $labels.workload_kind }} {{ $labels.namespace }}/{{ $labels.workload }}."
+  "description" "Container {{ $labels.container }} of {{ $labels.workload_kind }} {{ $labels.namespace }}/{{ $labels.workload }} runs {{ $labels.image }}, findings: {{ $value }}. Details: kubectl -n {{ $labels.namespace }} get malwarereport {{ $labels.report }} -o yaml. A false positive belongs in a MalwareIgnore with a reason."
+  "path" "/cluster/{{ $labels.namespace }}/{{ $labels.report }}") }}
 {{- $rules = append $rules (dict
   "alert" "MelesScanErrors"
   "expr" (printf "sum by (namespace) (meles_operator_reports{%s,status=\"Error\"}) > 0" $job)
   "for" $v.errorFor "severity" "warning"
   "summary" "Images in {{ $labels.namespace }} could not be scanned."
-  "description" "{{ $value }} MalwareReports in {{ $labels.namespace }} are Error for longer than the operator's retries: those images are not scanned. The report's message names the cause, e.g. a refused pull.") }}
+  "description" "MalwareReports in Error in {{ $labels.namespace }}: {{ $value }}, for longer than the operator's retries, so those images are not scanned. The report's error names the cause, e.g. a refused pull."
+  "path" "/cluster?namespace={{ $labels.namespace }}&status=error") }}
 {{- $rules = append $rules (dict
   "alert" "MelesScansIncomplete"
   "expr" (printf "sum by (namespace) (meles_operator_reports{%s,status=\"Incomplete\"}) > 0" $job)
   "for" $v.errorFor "severity" "info"
   "summary" "Images in {{ $labels.namespace }} were scanned with skipped files."
-  "description" "{{ $value }} MalwareReports in {{ $labels.namespace }} are Incomplete: files were skipped, usually over clamd's size limits. Skipped files are not scanned.") }}
+  "description" "Incomplete MalwareReports in {{ $labels.namespace }}: {{ $value }}. Files were skipped, usually over clamd's size limits; skipped files are not scanned."
+  "path" "/cluster?namespace={{ $labels.namespace }}&status=incomplete") }}
 {{- $rules = append $rules (dict
   "alert" "MelesOperatorDown"
   "expr" (printf "sum(up{%s}) == 0 or absent(up{%s})" $job $job)
@@ -34,26 +38,30 @@ meles_operator_reports is the report's (honorLabels), so it selects by job. */}}
   "expr" (printf "max(meles_operator_leader{%s}) < 1" $job)
   "for" "10m" "severity" "warning"
   "summary" "No meles operator replica is the leader."
-  "description" "The operator runs, but no replica holds the leader lease, so nothing is scanned.") }}
+  "description" "The operator runs, but no replica holds the leader lease, so nothing is scanned."
+  "path" "/cluster") }}
 {{- $rules = append $rules (dict
   "alert" "MelesScanQueueStuck"
   "expr" (printf "sum(meles_operator_scan_queue{%s}) > 0 and (sum(increase(meles_operator_scans_total{%s}[30m])) or vector(0)) == 0" $job $job)
   "for" "15m" "severity" "warning"
   "summary" "Image scans wait, but none finished for 30 minutes."
-  "description" "{{ $value }} scans are queued and no scan finished within 30 minutes. Check clamd and the operator's log.") }}
+  "description" "Queued scans: {{ $value }}, and no scan finished within 30 minutes. Check clamd and the operator's log."
+  "path" "/cluster") }}
 {{- if .Values.operator.gate.enabled }}
 {{- $rules = append $rules (dict
   "alert" "MelesGatePodsHeld"
   "expr" (printf "sum(meles_operator_gate_held_pods{%s}) > 0" $job)
   "for" $v.gateHeldFor "severity" "warning"
   "summary" "The meles scan gate holds pods."
-  "description" "The scan gate holds {{ $value }} pods (for at least as long as this alert waited): an image is Infected, cannot be resolved or pulled, or (enforce) was scanned incompletely. The Cluster page of meles server and the ScanGateHeld events name the reasons.") }}
+  "description" "Pods held by the scan gate: {{ $value }} (for at least as long as this alert waited). An image is Infected, cannot be resolved or pulled, or (enforce) was scanned incompletely. The Cluster page of meles server and the ScanGateHeld events name the reasons."
+  "path" "/cluster") }}
 {{- $rules = append $rules (dict
   "alert" "MelesGateReleasedUnscanned"
   "expr" (printf "sum(increase(meles_operator_gate_released_total{%s,scan=\"unscanned\"}[15m])) > 0" $job)
   "for" "0m" "severity" "warning"
   "summary" "The meles scan gate released pods without a complete scan."
-  "description" "The scan gate released pods without a complete scan (an outage of clamd with failOpen, or audit mode). The ScanGateReleasedUnscanned events name the pods.") }}
+  "description" "The scan gate released pods without a complete scan (an outage of clamd with failOpen, or audit mode). The ScanGateReleasedUnscanned events name the pods."
+  "path" "/cluster") }}
 {{- end }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -82,6 +90,9 @@ spec:
           annotations:
             summary: {{ .summary | quote }}
             description: {{ .description | quote }}
+            {{- if and $ui .path }}
+            url: {{ printf "%s%s" $ui .path | quote }}
+            {{- end }}
         {{- end }}
         {{- end }}
 {{- end }}

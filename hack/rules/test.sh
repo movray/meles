@@ -8,6 +8,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 helm template meles ../../charts/meles \
 	--set operator.enabled=true,operator.gate.enabled=true,operator.prometheusRule.enabled=true \
+	--set operator.prometheusRule.uiURL=https://meles.example/ \
 	--show-only templates/operator-rules.yaml |
 	sed -n '/^spec:/,$p' | sed '1d; s/^  //' >"$out/rules.yaml"
 cp rules_test.yaml "$out/"

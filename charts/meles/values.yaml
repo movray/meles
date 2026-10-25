@@ -336,6 +336,9 @@ operator:
     errorFor: 6h
     # How long the scan gate holds pods before it alerts.
     gateHeldFor: 30m
+    # URL of meles server for the alerts' url annotation (the report or the
+    # Cluster page); default from server.ingress or server.httpRoute.
+    uiURL: ""
   # Additional environment variables, e.g. MELES_LOG_LEVEL=debug.
   extraEnv: []
   resources:

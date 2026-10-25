@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,13 +69,20 @@ var reportsDesc = prometheus.NewDesc("meles_operator_reports",
 	"MalwareReports by namespace and status (Clean, Infected, Incomplete, Error); only the leader reports them.",
 	[]string{"namespace", "status"}, nil)
 
+var infectedDesc = prometheus.NewDesc("meles_operator_infected",
+	"Findings (not ignored) of each Infected MalwareReport, by report, workload, container and image, for alerts that name them; only the leader reports them.",
+	[]string{"namespace", "report", "workload_kind", "workload", "container", "image"}, nil)
+
 // reportCollector counts the MalwareReports in the cache at each scrape.
 type reportCollector struct {
 	reader   client.Reader
 	isLeader func() bool
 }
 
-func (c reportCollector) Describe(ch chan<- *prometheus.Desc) { ch <- reportsDesc }
+func (c reportCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- reportsDesc
+	ch <- infectedDesc
+}
 
 func (c reportCollector) Collect(ch chan<- prometheus.Metric) {
 	// Every replica caches the reports; one series per report set is enough.
@@ -91,7 +99,18 @@ func (c reportCollector) Collect(ch chan<- prometheus.Metric) {
 	type key struct{ ns, status string }
 	counts := map[key]int{}
 	for _, rep := range list.Items {
-		counts[key{rep.Namespace, rep.Report.Summary.Status}]++
+		d := rep.Report
+		counts[key{rep.Namespace, d.Summary.Status}]++
+		if d.Summary.Status != v1alpha1.StatusInfected {
+			continue
+		}
+		// As on the Cluster page: a ReplicaSet with a parent is a Deployment.
+		kind, name := d.Workload.Kind, d.Workload.Name
+		if d.Workload.Parent != "" {
+			kind, name = "Deployment", d.Workload.Parent
+		}
+		ch <- prometheus.MustNewConstMetric(infectedDesc, prometheus.GaugeValue, float64(d.Summary.Findings),
+			rep.Namespace, rep.Name, kind, name, d.Workload.Container, cmp.Or(d.Image.Reference, d.Image.Repository))
 	}
 	for k, n := range counts {
 		ch <- prometheus.MustNewConstMetric(reportsDesc, prometheus.GaugeValue, float64(n), k.ns, k.status)

@@ -257,7 +257,7 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.pruneInterval` | `30m` | delete reports of ReplicaSets, StatefulSets and DaemonSets without pods; `0` disables |
 | `operator.rescanInterval` | `24h` | rescan after a signature update at most this often; `0` disables |
 | `operator.serviceMonitor.enabled` | `false` | ServiceMonitor for the operator's `/metrics` (`labels`, `interval`) |
-| `operator.prometheusRule.enabled` | `false` | alerts as a PrometheusRule (`labels`, `alertLabels`, `disabled`, `errorFor`, `gateHeldFor`) |
+| `operator.prometheusRule.enabled` | `false` | alerts as a PrometheusRule (`labels`, `alertLabels`, `disabled`, `errorFor`, `gateHeldFor`, `uiURL`) |
 | `operator.grafanaDashboard.enabled` | `false` | Grafana dashboard as a ConfigMap for the sidecar (`labels`, default `grafana_dashboard: "1"`; `namespace`, `annotations`) |
 | `networkPolicy.operatorMetricsFrom` | `[]` | further peers allowed to reach the operator's `/metrics` and `/status`, e.g. Prometheus |
 | `operator.gate.enabled` | `false` | scan gate: hold new pods in labelled namespaces until their images are scanned (see below) |
@@ -380,6 +380,7 @@ Prometheus metrics at `/metrics` on port 8080, behind the headless service
 | `meles_operator_gate_released_total{scan}` | released pods: `complete` or `unscanned` |
 | `meles_operator_leader` | 1 on the replica that scans |
 | `meles_operator_reports{namespace,status}` | MalwareReports in the cluster (leader only) |
+| `meles_operator_infected{namespace,report,workload_kind,workload,container,image}` | findings of each Infected report (leader only) |
 
 `operator.serviceMonitor.enabled` creates a ServiceMonitor (with
 `honorLabels`, so `namespace` of `meles_operator_reports` stays the
@@ -393,7 +394,7 @@ in `charts/meles/dashboards/` for importing it by hand.
 
 | Alert | Severity | When |
 |---|---|---|
-| `MelesInfectedWorkload` | critical | a namespace has Infected reports |
+| `MelesInfectedWorkload` | critical | a workload's container runs an Infected image; one alert each, naming workload, container and image |
 | `MelesScanErrors` | warning | reports stay Error for `errorFor` (6h): images not scanned |
 | `MelesScansIncomplete` | info | reports stay Incomplete for `errorFor`: files skipped |
 | `MelesOperatorDown` | warning, critical with the scan gate | no operator replica reachable for 10 minutes |
@@ -402,7 +403,10 @@ in `charts/meles/dashboards/` for importing it by hand.
 | `MelesGatePodsHeld` | warning | the scan gate holds pods for `gateHeldFor` (30m) |
 | `MelesGateReleasedUnscanned` | warning | the scan gate released pods without a complete scan |
 
-The gate's alerts exist only with `operator.gate.enabled`; leave out others
+Each alert carries a `url` annotation into the web UI (the report, or the
+Cluster page filtered by namespace and status), from `server.ingress`,
+`server.httpRoute` or `operator.prometheusRule.uiURL`. The gate's alerts
+exist only with `operator.gate.enabled`; leave out others
 with `operator.prometheusRule.disabled`, e.g. `{MelesScansIncomplete: true}`.
 
 ```yaml

@@ -67,9 +67,13 @@ func TestReportMetrics(t *testing.T) {
 			Report:     v1alpha1.ReportData{Summary: v1alpha1.Summary{Status: status}},
 		}
 	}
+	infected := rep("shop", "c", v1alpha1.StatusInfected)
+	infected.Report.Summary.Findings = 2
+	infected.Report.Workload = v1alpha1.Workload{Kind: "ReplicaSet", Name: "web-5d8f", Parent: "web", Container: "app"}
+	infected.Report.Image = v1alpha1.Image{Repository: "reg/web", Reference: "reg/web:1.2"}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		rep("shop", "a", v1alpha1.StatusClean), rep("shop", "b", v1alpha1.StatusClean),
-		rep("shop", "c", v1alpha1.StatusInfected), rep("db", "d", v1alpha1.StatusError),
+		infected, rep("db", "d", v1alpha1.StatusError),
 	).Build()
 	leader := true
 	col := reportCollector{c, func() bool { return leader }}
@@ -79,6 +83,9 @@ func TestReportMetrics(t *testing.T) {
 meles_operator_reports{namespace="db",status="Error"} 1
 meles_operator_reports{namespace="shop",status="Clean"} 2
 meles_operator_reports{namespace="shop",status="Infected"} 1
+# HELP meles_operator_infected Findings (not ignored) of each Infected MalwareReport, by report, workload, container and image, for alerts that name them; only the leader reports them.
+# TYPE meles_operator_infected gauge
+meles_operator_infected{container="app",image="reg/web:1.2",namespace="shop",report="c",workload="web",workload_kind="Deployment"} 2
 `
 	if err := testutil.CollectAndCompare(col, strings.NewReader(want)); err != nil {
 		t.Error(err)
