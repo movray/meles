@@ -398,6 +398,20 @@ func TestPullSecrets(t *testing.T) {
 		t.Errorf("error without the command to grant: %q", denied.Report.Error)
 	}
 
+	// A rescan that fails again writes the error and ends: the report is
+	// rescanned once, not again and again.
+	before := denied.Report.ScannedAt.Time
+	denied.Annotations = map[string]string{v1alpha1.AnnotationRescan: "1"}
+	if err := e.c.Update(context.Background(), denied); err != nil {
+		t.Fatal(err)
+	}
+	denied = e.reportWhere(t, ns, "pod-private-app", "failed rescan written", func(r *v1alpha1.MalwareReport) bool {
+		return !rescanRequested(r) && r.Report.ScannedAt.After(before)
+	})
+	if denied.Report.Summary.Status != v1alpha1.StatusError {
+		t.Fatalf("failed rescan: status %s", denied.Report.Summary.Status)
+	}
+
 	// The team grants the operator its pull secrets and asks for a rescan.
 	e.create(t, &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: "meles-pull-secret-reader"},

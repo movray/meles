@@ -370,7 +370,12 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 			return nil, 0, err
 		}
 		var ok bool
-		if res, ok, err = r.cachedResult(ctx, img, platforms, force); err != nil {
+		// A forced rescan takes only results newer than the report.
+		var newer time.Time
+		if force {
+			newer = existing.Report.ScannedAt.Time
+		}
+		if res, ok, err = r.cachedResult(ctx, img, platforms, force, newer); err != nil {
 			return nil, 0, err
 		}
 		if !ok {
@@ -493,13 +498,20 @@ func (r *Reconciler) engineVersion(ctx context.Context) (engine.Version, error) 
 
 // cachedResult returns a current result of an image without scanning: a
 // remembered one, or one of another report of the same digest and platforms.
-// With force, or if there is none, it returns false and a scan has to be
-// requested.
-func (r *Reconciler) cachedResult(ctx context.Context, img image, platforms string, force bool) (result, bool, error) {
+// With force it returns only a remembered result newer than newer, the
+// rescan's own; otherwise, or if there is none, it returns false and a scan
+// has to be requested.
+func (r *Reconciler) cachedResult(ctx context.Context, img image, platforms string, force bool, newer time.Time) (result, bool, error) {
+	key := resultKey(img, platforms)
 	if force {
+		// The rescan's own result, also a failed one: without it a scan
+		// that keeps failing would be requested again and again. Reports
+		// keep whole seconds, the remembered result more.
+		if res, ok := r.remembered(key); ok && res.scannedAt.Truncate(time.Second).After(newer) {
+			return res, true, nil
+		}
 		return result{}, false, nil
 	}
-	key := resultKey(img, platforms)
 	if res, ok := r.remembered(key); ok {
 		stale, _, err := r.stale(ctx, res)
 		if err != nil || !stale {
