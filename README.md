@@ -32,6 +32,7 @@ substitute for image signing, SBOMs or runtime detection.
 - [docs/architecture.md](docs/architecture.md): how it works, where state
   lives, security model, design decisions
 - [docs/development.md](docs/development.md): building, testing, releasing
+- [docs/architecture.md#planned-improvements](docs/architecture.md#planned-improvements): what is planned but not built yet
 - [ROADMAP.md](ROADMAP.md): plans and progress (German)
 
 ## Quick start

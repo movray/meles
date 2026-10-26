@@ -482,6 +482,21 @@ scan.
 | Registry rate limits | the operator pulls every image itself, no throttling of its own; pull-through cache or credentials recommended | a cache helps the kubelet too, throttling only delays scans |
 | Scan gate | off by default; webhook with scheduling gates, digest pinning, mode per namespace label | admin decides; scans take minutes; exactly the scanned image runs; fail-open possible |
 
+## Planned improvements
+
+Not built yet, but intended; the order and details are in
+[ROADMAP.md](../ROADMAP.md) (German).
+
+- **clamd from outside the cluster.** A `TLSRoute` (Gateway API, TLS
+  passthrough, experimental channel) in the chart, so that CI jobs without
+  cluster access can use the clamd workers. Passthrough, because TLS and the
+  token check live in the clamd-proxy; optionally mTLS in the proxy.
+- **Signature databases outside your own cluster.** Today every cluster
+  runs its own mirror that downloads from Cisco Talos. A way to distribute
+  the database to clusters and CI runners without each of them talking to
+  Talos (an OCI artifact or a private mirror), within the terms of Cisco
+  Talos for redistribution.
+
 ## Non-goals
 
 - No replacement for supply-chain protection (signatures, SBOMs) or runtime
