@@ -24,12 +24,18 @@ jobs:
           git -c http.extraHeader="Authorization: token $TOKEN" fetch -q --depth=1 "$REPO" "$SHA"
           git checkout -q FETCH_HEAD
       - run: make lint
+      # The rule index embedded in meles must match charts/meles/rules.
+      - name: YARA rule index
+        run: |
+          go generate ./internal/yararules
+          git diff --exit-code internal/yararules
       - run: make test
       # Operator tests against a real API server and etcd (downloaded binaries).
       - run: make test-envtest
 
-  # The chart's Prometheus alerts with promtool. helm and promtool are
-  # release binaries, pinned by version and sha256.
+  # The chart's Prometheus alerts with promtool, the YARA rules with YARA-X
+  # (a later engine candidate: rules must stay compatible). helm, promtool
+  # and yr are release binaries, pinned by version and sha256.
   rules:
     runs-on: ubuntu-latest
     container:
@@ -39,6 +45,8 @@ jobs:
       HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
       PROMETHEUS_VERSION: 3.4.2
       PROMETHEUS_SHA256: 630177c6ad011193987904f09ffafec29d531abfeb5e43fa3714e376e5f28ddc
+      YARA_X_VERSION: v1.22.0
+      YARA_X_SHA256: 7f470770b2c1a0d97f02298fc194978d999074d147d003d33dd62775761439db
     steps:
       - name: checkout
         env:
@@ -61,7 +69,32 @@ jobs:
           get prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION/prometheus-$PROMETHEUS_VERSION.linux-amd64.tar.gz"
           echo "$PROMETHEUS_SHA256  prometheus.tgz" | sha256sum -c -
           tar -xzf prometheus.tgz --strip-components=1 "prometheus-$PROMETHEUS_VERSION.linux-amd64/promtool"
+          get yara-x.tgz "https://github.com/VirusTotal/yara-x/releases/download/$YARA_X_VERSION/yara-x-$YARA_X_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$YARA_X_SHA256  yara-x.tgz" | sha256sum -c -
+          mkdir yara-x && tar -xzf yara-x.tgz -C yara-x
+          mv "$(find yara-x -type f -name yr)" yr
       - run: PATH="/tmp/tools:$PATH" make test-rules
+      - run: /tmp/tools/yr check charts/meles/rules/
+
+  # The YARA rules in the ClamAV image the chart deploys: every rule must
+  # load. The image has neither git nor bash, so the code comes as an archive.
+  yara:
+    runs-on: ubuntu-latest
+    container:
+      # Keep in line with clamd.image in charts/meles/values.yaml.
+      image: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+    defaults:
+      run:
+        shell: sh
+    steps:
+      - name: checkout
+        env:
+          TOKEN: ${{ gitea.token }}
+          ARCHIVE: ${{ gitea.server_url }}/api/v1/repos/${{ gitea.repository }}/archive/${{ gitea.sha }}.tar.gz
+        run: |
+          wget -q --header "Authorization: token $TOKEN" -O /tmp/src.tgz "$ARCHIVE"
+          tar -xzf /tmp/src.tgz --strip-components=1
+      - run: hack/yara/check-clamav.sh charts/meles/rules/*.yar
 
   # Against the real clamd of the testcluster, through meles clamd-proxy.
   # The runner's network policy allows exactly this connection.
