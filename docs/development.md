@@ -79,9 +79,12 @@ internal/schedule/      cron schedules
 internal/server/        web UI (web/templates, web/static) and JSON API
 internal/operator/      operator: pods, workloads, scan queue, reports, pruning
 internal/harbor/        Harbor scanner adapter
+internal/yararules/     index of the default YARA rules (author, license), generated
 internal/testimage/     EICAR test images, in-memory registry
 hack/testregistry/      test images on a fixed port (UI demo)
-charts/meles/           Helm chart; crds/ is generated
+hack/yaraindex/         generator of internal/yararules/index.json
+hack/yara/              ClamAV load check of YARA rules (CI)
+charts/meles/           Helm chart; crds/ is generated; rules/ holds the default YARA rules
 spike/                  throw-away prototype (own module), reference only
 ```
 
@@ -107,6 +110,19 @@ never updates them, so after an upgrade:
 ```sh
 kubectl apply -f charts/meles/crds/
 ```
+
+## YARA rules
+
+The default rules live in `charts/meles/rules/` (selection and licenses in
+its README). After changing them:
+
+```sh
+go generate ./internal/yararules                    # rule index embedded in meles
+hack/yara/check-clamav.sh charts/meles/rules/*.yar  # every rule loads in ClamAV (needs clamscan)
+yr check charts/meles/rules/                        # compiles in YARA-X
+```
+
+CI runs all three (the ClamAV check in the deployed `clamav/clamav` image).
 
 ## Images and releases
 

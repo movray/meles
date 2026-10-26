@@ -80,8 +80,8 @@ The clients' `--clamd-timeout` follows `clamd.maxScanTime` as well.
 ## Components in a cluster
 
 ```
-Cisco Talos CDN ──▶ mirror (cvdupdate + nginx, once per site)
-                       │ freshclam (PrivateMirror)
+Cisco Talos CDN ──▶ mirror (cvdupdate + nginx, once per site; YARA rules from ConfigMaps)
+                       │ freshclam (PrivateMirror, DatabaseCustomURL)
                        ▼
                    clamd workers (1..n, signatures kept in memory)
                    └ clamd-proxy sidecar: TLS + token + command filter
@@ -102,7 +102,10 @@ Cisco Talos CDN ──▶ mirror (cvdupdate + nginx, once per site)
   `SCAN <path>` from anyone. The sidecar accepts clients over TLS, checks a
   token (`zAUTH <token>` → `AUTH OK`) and forwards only `IDSESSION`,
   `INSTREAM`, `VERSION`, `PING` and `END`. clamd itself listens on
-  127.0.0.1 in its pod, so the image's probes keep working.
+  127.0.0.1 in its pod, so the image's probes keep working. It also
+  appends a hash of the YARA rules in clamd's database directory to the
+  `VERSION` reply (see [YARA rules](#yara-rules)).
+- **YARA rules.** See [YARA rules](#yara-rules).
 - **Server.** Server-rendered pages (`html/template`, embedded), no JS
   framework, no CDN, strict CSP; JavaScript only as an enhancement. One
   replica, because the database is SQLite on a PVC. No login of its own:
@@ -110,6 +113,50 @@ Cisco Talos CDN ──▶ mirror (cvdupdate + nginx, once per site)
   chart). CSRF protection is built in.
 - **Operator.** See [Operator](#operator).
 - **Harbor adapter.** See [Harbor adapter](#harbor-adapter).
+
+## YARA rules
+
+The YARA language, executed by ClamAV's own YARA support: no second engine,
+no CGO. ClamAV supports a subset (no modules, no `global` rules, strings of
+at least 2 bytes); the default rules also compile in YARA-X, so that a later
+switch to YARA-X (a separate process, its Go bindings need CGO) needs no
+rewrite. CI checks both: ClamAV in the deployed image must load every rule
+(it skips incompatible rules silently and exits 0, so the number of loaded
+signatures is compared), and `yr check` must pass.
+
+- **Selection.** A narrow, curated set (about 140 rules) from sources with a
+  license that allows redistribution, aimed at containers: cryptominers,
+  Linux malware, webshells, attacks on Docker and Kubernetes. Broad
+  "suspicious"/hunting rules were tested against 63 images of a typical
+  cluster first (no YARA false positive). Sources without a license (19 in
+  YARA Forge), GPL and Elastic License sources are excluded.
+- **Distribution through the mirror.** Rules in the chart
+  (`charts/meles/rules/`) → ConfigMap → mirror nginx under `/rules/` →
+  freshclam in every clamd pod (`DatabaseCustomURL`) → clamd reloads. Own
+  rules come from further ConfigMaps (`yara.extra`). A change reaches clamd
+  without a restart, with freshclam's next check.
+- **Version measured by the clamd-proxy.** The proxy hashes the `.yar` and
+  `.yara` files in clamd's database directory and appends the hash to the
+  signature version in the `VERSION` reply
+  (`ClamAV 1.4.6/28164+rules.<hash>/…`). A report carries the rules version
+  only if the scanning clamd has the rules, and rescans and layer caches
+  follow without a mechanism of their own. If the rules cannot be read the
+  proxy sends no reply rather than a version without them. Rejected: the
+  hash as a value of the chart (it would exist before the rules reach
+  clamd). Without the proxy new rules do not trigger rescans.
+- **Attribution.** The Detection Rule License 1.1 (signature-base, SEKOIA)
+  requires the rule author in every message about a match. `go generate`
+  builds an index (rule → author, license, source URL) from the rules'
+  meta blocks into `internal/yararules`; findings of a default rule carry it
+  in every output (CLI table and JSON, MalwareReport `rule`, web UI, CSV,
+  Harbor). The generator refuses rules without author, source or a known
+  license.
+- **PUA off.** ClamAV's `PUA.*` signatures (`clamd.detectPUA`) are off by
+  default: in the same test all 17 PUA findings were false positives
+  (`PUA.Win.Exploit.CVE_2012_1461-1` on every Alpine `.apk` and
+  `APKINDEX.tar.gz`, which are concatenated gzip streams;
+  `PUA.Win.Trojan.Xored-1` on minified JavaScript). Enabled, it would stop
+  most Alpine-based images at the scan gate.
 
 ## Where state lives
 
@@ -375,7 +422,9 @@ scan.
 | Language | Go | go-containerregistry, controller-runtime, one binary |
 | CLI | cobra; every flag also as `MELES_<FLAG>` | like `TRIVY_*` |
 | ClamAV | clamd over INSTREAM, no `clamscan` fallback, no libclamav | license, database in memory once |
-| YARA | first through ClamAV's YARA support | no CGO |
+| YARA | ClamAV's YARA support; rules in the common subset of ClamAV and YARA-X; curated, licensed set distributed through the mirror | no CGO, engine switch possible later, one distribution path |
+| YARA rules version | hash of the loaded rules in the clamd-proxy's `VERSION` reply | rescans and caches follow without a new mechanism |
+| PUA signatures | off by default | false positives on Alpine packages and minified JavaScript |
 | Scan unit | layer, not the final filesystem | whiteout findings, cache per digest |
 | Multi-arch | all platforms by default | an amd64 runner must not call an infected arm64 variant clean |
 | Exit codes | `1` on findings and skipped files, `2` fixed for errors | a security gate; unlike Trivy |

@@ -19,6 +19,9 @@ layers.
 - No Docker socket: images are pulled straight from the registry.
 - Scanning is done by ClamAV's `clamd` over its socket protocol. meles does not
   link against libclamav and stays Apache-2.0 licensed.
+- Besides ClamAV's signatures, the Helm chart ships about 140 curated YARA
+  rules for cryptominers, Linux malware, webshells and attacks on
+  containers, run by clamd as well.
 
 By default meles only reports, and it never deletes anything. It is no
 substitute for image signing, SBOMs or runtime detection.
@@ -216,7 +219,7 @@ The Helm chart in `charts/meles` installs these roles:
 
 | Component | Purpose |
 |---|---|
-| `<release>-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly). |
+| `<release>-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly); also serves the YARA rules. |
 | `<release>-clamd` | clamd workers; get signatures from the mirror via freshclam `PrivateMirror`. |
 | `<release>-server` | web UI, scheduler, run history (SQLite on a PVC). |
 | `<release>-operator` | scans the image of every pod in the cluster, writes MalwareReports (off by default, see below). |
@@ -246,6 +249,9 @@ Important values (see `charts/meles/values.yaml`):
 | `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more. `--clamd-timeout` of the meles clients follows it (plus a minute, at least 5 minutes) |
 | `clamd.maxFiles` | `10000` | clamd's `MaxFiles`: files scanned per archive |
 | `clamd.maxRecursion` | `17` | clamd's `MaxRecursion`: nesting of archives |
+| `clamd.detectPUA` | `false` | ClamAV's `PUA.*` signatures (potentially unwanted applications); mostly false positives in container images |
+| `yara.defaultRules` | `true` | the chart's YARA rules (see below) |
+| `yara.extra` | `[]` | own YARA rules from ConfigMaps, e.g. `[{configMap: team-rules, files: [team.yar]}]` |
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.clusterReports.enabled` | with `operator.enabled` | page "Cluster" with the operator's MalwareReports (ClusterRole: read `malwarereports`) |
 | `server.clusterReports.rescan` | `true` | "Rescan" button in the UI (adds `patch` on `malwarereports`) |
@@ -276,6 +282,36 @@ Important values (see `charts/meles/values.yaml`):
 | `operator.gate.failOpen` | `true` | release held pods when the scan failed in clamd |
 | `operator.gate.failurePolicy` | `Ignore` | webhook failure policy; `Fail` blocks pod creation in gated namespaces while the operator is down |
 | `operator.gate.tls.certManager.*` | off | webhook certificate from cert-manager instead of a self-signed one |
+
+### YARA rules
+
+`charts/meles/rules/meles.yar` holds about 140 YARA rules from open sources
+(signature-base, Volexity, ditekSHen, SEKOIA and others), selected for
+containers: cryptominers, Linux malware, webshells and attacks on Docker
+and Kubernetes. They were checked against the images of a typical cluster
+without a false positive. The mirror serves them, freshclam loads them into
+every clamd pod, and clamd runs them with ClamAV's YARA support; findings
+look like `YARA.SIGNATURE_BASE_XMRIG_Monero_Miner.UNOFFICIAL`.
+
+Every finding of such a rule names the rule's author, license and source
+(CLI, JSON, MalwareReports, web UI, Harbor): the Detection Rule License of
+some sources requires it. Sources and licenses:
+[charts/meles/rules/README.md](charts/meles/rules/README.md).
+
+Own rules go into ConfigMaps of the release namespace and `yara.extra`; the
+mirror serves them next to the default ones. ClamAV supports a subset of
+YARA (no modules, no `global` rules) and skips other rules silently, so
+check them first: `clamscan -d team.yar /dev/null` must report as many
+"Known viruses" as the file has rules.
+
+Changed rules reach clamd with freshclam's next check
+(`clamd.freshclam.checksPerDay`, default hourly). The clamd-proxy appends a
+hash of the loaded rules to the signature version (`28164+rules.3f2a…`), so
+the operator and the layer caches rescan as after a signature update.
+Without `clamd.auth` (no proxy) new rules do not trigger rescans.
+
+With the CLI against your own clamd, put `meles.yar` into clamd's database
+directory and reload clamd.
 
 ### Operator
 
@@ -637,4 +673,6 @@ See [docs/development.md](docs/development.md).
 ## License
 
 Apache-2.0. The `clamav/clamav` image used for the workers contains ClamAV,
-which is licensed under GPLv2.
+which is licensed under GPLv2. The YARA rules in `charts/meles/rules` keep
+the licenses of their sources (Detection Rule License 1.1, BSD-2-Clause,
+Apache-2.0), see the README there.
