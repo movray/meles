@@ -74,7 +74,7 @@ jobs:
           mkdir yara-x && tar -xzf yara-x.tgz -C yara-x
           mv "$(find yara-x -type f -name yr)" yr
       - run: PATH="/tmp/tools:$PATH" make test-rules
-      - run: /tmp/tools/yr check charts/meles/rules/
+      - run: hack/yara/check-yarax.sh /tmp/tools/yr charts/meles/rules/*.yar
 
   # The YARA rules in the ClamAV image the chart deploys: every rule must
   # load. The image has neither git nor bash, so the code comes as an archive.

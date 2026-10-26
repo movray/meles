@@ -119,7 +119,7 @@ its README). After changing them:
 ```sh
 go generate ./internal/yararules                    # rule index embedded in meles
 hack/yara/check-clamav.sh charts/meles/rules/*.yar  # every rule loads in ClamAV (needs clamscan)
-yr check charts/meles/rules/                        # compiles in YARA-X
+hack/yara/check-yarax.sh yr charts/meles/rules/*.yar  # compiles in YARA-X (warnings allowed)
 ```
 
 CI runs all three (the ClamAV check in the deployed `clamav/clamav` image).
