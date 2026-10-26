@@ -3,6 +3,11 @@
 // "zAUTH <token>\0"; afterwards only the commands meles needs are forwarded
 // (PING, VERSION, IDSESSION, INSTREAM, END). Everything else, in particular
 // SHUTDOWN and SCAN <path>, closes the connection.
+//
+// With RulesDir set, the proxy appends a hash of the YARA rules in clamd's
+// database directory to the VERSION reply ("ClamAV 1.4.6/28164+rules.<hash>/
+// <date>"). Clients use the signature version as cache and rescan key, so
+// changed rules count like a signature update.
 package clamdproxy
 
 import (
@@ -12,6 +17,7 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +25,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +66,9 @@ type Proxy struct {
 	AuthTimeout time.Duration
 	// MaxConns limits concurrent client connections. 0 means no limit.
 	MaxConns int
+	// RulesDir is clamd's DatabaseDirectory; empty: VERSION is forwarded
+	// unchanged.
+	RulesDir string
 	Logger   *slog.Logger
 
 	cert   reloader[tls.Certificate]
@@ -144,6 +155,14 @@ func (p *Proxy) handle(ctx context.Context, conn *tls.Conn) {
 	}
 	conn.SetDeadline(time.Time{})
 
+	first, err := readCommand(r, maxCommandLen)
+	if err != nil {
+		return
+	}
+	if !allowed[first.text] {
+		log.Warn("connection closed", "err", fmt.Errorf("command %q not allowed", first.text))
+		return
+	}
 	network, address, _ := p.upstream()
 	up, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
 	if err != nil {
@@ -151,6 +170,18 @@ func (p *Proxy) handle(ctx context.Context, conn *tls.Conn) {
 		return
 	}
 	defer up.Close()
+
+	// VERSION outside a session is a connection of its own: clamd answers
+	// and closes it.
+	if first.text == "VERSION" && p.RulesDir != "" {
+		if err := p.version(first, up, conn); err != nil {
+			log.Error("VERSION", "err", err)
+		}
+		return
+	}
+	if _, err := up.Write(first.raw); err != nil {
+		return
+	}
 
 	// clamd's replies go back unchanged. When clamd closes the connection,
 	// e.g. after its IdleTimeout, the client connection is closed as well.
@@ -160,11 +191,80 @@ func (p *Proxy) handle(ctx context.Context, conn *tls.Conn) {
 		io.Copy(conn, up)
 		conn.Close()
 	}()
-	if err := forward(r, up); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+	err = nil
+	if first.text == "INSTREAM" {
+		err = forwardChunks(r, up)
+	}
+	if err == nil {
+		err = forward(r, up)
+	}
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
 		log.Warn("connection closed", "err", err)
 	}
 	up.Close()
 	<-done
+}
+
+// version forwards VERSION and appends the rules hash to the signature
+// version in clamd's reply. Without readable rules the client gets no
+// reply, rather than a version that hides the rules.
+func (p *Proxy) version(cmd command, up net.Conn, client io.Writer) error {
+	hash, err := rulesHash(p.RulesDir)
+	if err != nil {
+		return err
+	}
+	up.SetDeadline(time.Now().Add(30 * time.Second))
+	if _, err := up.Write(cmd.raw); err != nil {
+		return err
+	}
+	term := byte(0)
+	if cmd.prefix == 'n' {
+		term = '\n'
+	}
+	reply, err := bufio.NewReader(io.LimitReader(up, 1024)).ReadString(term)
+	if err != nil {
+		return fmt.Errorf("read reply: %w", err)
+	}
+	_, err = client.Write([]byte(withRules(reply, hash)))
+	return err
+}
+
+// withRules turns "ClamAV 1.4.6/28164/<date>" into
+// "ClamAV 1.4.6/28164+rules.<hash>/<date>".
+func withRules(reply, hash string) string {
+	parts := strings.SplitN(reply, "/", 3)
+	if hash == "" || len(parts) < 2 {
+		return reply
+	}
+	parts[1] += "+rules." + hash
+	return strings.Join(parts, "/")
+}
+
+// rulesHash hashes the names and contents of the .yar and .yara files in
+// dir; "" if there are none.
+func rulesHash(dir string) (string, error) {
+	var files []string
+	for _, pat := range []string{"*.yar", "*.yara"} {
+		m, err := filepath.Glob(filepath.Join(dir, pat))
+		if err != nil {
+			return "", err
+		}
+		files = append(files, m...)
+	}
+	if len(files) == 0 {
+		return "", nil
+	}
+	slices.Sort(files)
+	h := sha256.New()
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return "", fmt.Errorf("rules hash: %w", err)
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00", filepath.Base(f), len(b))
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12], nil
 }
 
 // authenticate reads "zAUTH <token>\0" and answers AUTH OK or AUTH FAILED.

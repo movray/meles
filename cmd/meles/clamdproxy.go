@@ -24,7 +24,10 @@ TLS, token authentication and a command filter. Only PING, VERSION, IDSESSION,
 INSTREAM and END are forwarded; SHUTDOWN, SCAN <path> and all other commands
 close the connection. Let clamd listen only on 127.0.0.1 or a Unix socket.
 
-Clients connect with --clamd tls://host:port and MELES_CLAMD_TOKEN.`,
+Clients connect with --clamd tls://host:port and MELES_CLAMD_TOKEN.
+
+With --rules-dir, VERSION replies carry a hash of the YARA rules clamd loads
+(ClamAV 1.4.6/28164+rules.<hash>/...).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if p.CertFile == "" || p.KeyFile == "" || p.TokenFile == "" {
@@ -49,5 +52,6 @@ Clients connect with --clamd tls://host:port and MELES_CLAMD_TOKEN.`,
 	fs.StringVar(&p.TokenFile, "token-file", "", "file with accepted tokens, one per line, reloaded when it changes")
 	fs.DurationVar(&p.AuthTimeout, "auth-timeout", 10*time.Second, "time for TLS handshake and authentication")
 	fs.IntVar(&p.MaxConns, "max-connections", 100, "concurrent client connections (0 = no limit)")
+	fs.StringVar(&p.RulesDir, "rules-dir", "", "clamd's database directory: VERSION replies get a hash of the YARA rules in it, so that changed rules trigger rescans")
 	return cmd
 }

@@ -92,7 +92,7 @@ type env struct {
 	clamd     *fakeClamd
 }
 
-func setup(t *testing.T) *env {
+func setup(t *testing.T, opts ...func(*Proxy)) *env {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -123,6 +123,9 @@ func setup(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	p := &Proxy{Upstream: "unix://" + upSock, CertFile: certFile, KeyFile: keyFile, TokenFile: tokenFile, AuthTimeout: 2 * time.Second}
+	for _, o := range opts {
+		o(p)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	served := make(chan error, 1)
 	go func() { served <- p.Serve(ctx, ln) }()
@@ -295,5 +298,46 @@ func TestClientRefusesTokenWithoutTLS(t *testing.T) {
 	c.Token = "secret"
 	if _, err := c.Version(context.Background()); err == nil || !strings.Contains(err.Error(), "tls://") {
 		t.Errorf("err = %v, want refusal to send the token without TLS", err)
+	}
+}
+
+func TestProxyVersionWithRules(t *testing.T) {
+	rules := t.TempDir()
+	e := setup(t, func(p *Proxy) { p.RulesDir = rules })
+	version := func() string {
+		t.Helper()
+		v, err := e.client(t, "secret-1").Version(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(v.Raw, "/Tue Oct 20 08:24:12 2026") {
+			t.Errorf("raw = %q", v.Raw)
+		}
+		return v.Signatures
+	}
+	if got := version(); got != "28159" {
+		t.Errorf("without rules: signatures %q", got)
+	}
+	os.WriteFile(filepath.Join(rules, "main.cvd"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(rules, "meles.yar"), []byte("rule a { condition: true }"), 0o644)
+	first := version()
+	if !strings.HasPrefix(first, "28159+rules.") || len(first) != len("28159+rules.")+12 {
+		t.Fatalf("with rules: signatures %q", first)
+	}
+	if again := version(); again != first {
+		t.Errorf("unchanged rules: %q, then %q", first, again)
+	}
+	os.WriteFile(filepath.Join(rules, "team.yara"), []byte("rule b { condition: true }"), 0o644)
+	if changed := version(); changed == first {
+		t.Errorf("added rule file: version stays %q", changed)
+	}
+	// Sessions still work.
+	sess, err := e.client(t, "secret-1").Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if sig, err := sess.Scan(context.Background(), strings.NewReader("EVIL")); err != nil || sig != "Fake.Evil" {
+		t.Errorf("scan = %q, %v", sig, err)
 	}
 }
