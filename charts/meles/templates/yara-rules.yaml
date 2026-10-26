@@ -1,0 +1,12 @@
+{{- if and .Values.mirror.enabled .Values.yara.defaultRules }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "meles.fullname" . }}-yara
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror
+data:
+  meles.yar: |-
+    {{- .Files.Get "rules/meles.yar" | nindent 4 }}
+{{- end }}

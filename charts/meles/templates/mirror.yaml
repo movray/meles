@@ -1,5 +1,6 @@
 {{- if .Values.mirror.enabled }}
 {{- $fullname := include "meles.fullname" . }}
+{{- $yaraFiles := include "meles.yaraFiles" . | trim }}
 {{- if not .Values.mirror.persistence.existingClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -84,6 +85,9 @@ spec:
             - {name: db, mountPath: /mirror, readOnly: true}
             - {name: config, mountPath: /config}
             - {name: nginx-tmp, mountPath: /tmp}
+            {{- if $yaraFiles }}
+            - {name: rules, mountPath: /rules, readOnly: true}
+            {{- end }}
       volumes:
         - name: db
           persistentVolumeClaim:
@@ -94,6 +98,24 @@ spec:
           emptyDir: {}
         - name: nginx-tmp
           emptyDir: {}
+        {{- if $yaraFiles }}
+        # Not a subPath mount: ConfigMap updates reach nginx without a restart.
+        - name: rules
+          projected:
+            sources:
+              {{- if .Values.yara.defaultRules }}
+              - configMap:
+                  name: {{ $fullname }}-yara
+              {{- end }}
+              {{- range .Values.yara.extra }}
+              - configMap:
+                  name: {{ .configMap }}
+                  items:
+                    {{- range .files }}
+                    - {key: {{ . | quote }}, path: {{ . | quote }}}
+                    {{- end }}
+              {{- end }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

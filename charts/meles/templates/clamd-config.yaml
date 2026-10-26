@@ -56,6 +56,8 @@ data:
     # yes: no scan pause during a reload, but almost twice the memory.
     ConcurrentDatabaseReload yes
     SelfCheck 3600
+    # PUA.* signatures, off by default (false positives, values.yaml).
+    DetectPUA {{ ternary "yes" "no" .Values.clamd.detectPUA }}
     {{- with .Values.clamd.extraConfig }}
     {{- . | nindent 4 }}
     {{- end }}
@@ -71,6 +73,11 @@ data:
     {{- else if .Values.clamd.freshclam.privateMirror }}
     PrivateMirror {{ .Values.clamd.freshclam.privateMirror }}
     ScriptedUpdates no
+    {{- end }}
+    {{- range include "meles.yaraFiles" . | trim | splitList "\n" }}
+    {{- if . }}
+    DatabaseCustomURL http://{{ $fullname }}-mirror/rules/{{ . }}
+    {{- end }}
     {{- end }}
     Checks {{ .Values.clamd.freshclam.checksPerDay }}
     NotifyClamd /etc/clamav/clamd.conf

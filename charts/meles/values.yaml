@@ -183,6 +183,12 @@ clamd:
       resources:
         requests: {cpu: 10m, memory: 32Mi}
         limits: {memory: 128Mi}
+  # Potentially unwanted applications (ClamAV's PUA.* signatures). Off by
+  # default: in a test with 63 images of a typical cluster all 17 PUA
+  # findings were false positives (PUA.Win.Exploit.CVE_2012_1461-1 on every
+  # Alpine .apk and APKINDEX, PUA.Win.Trojan.Xored-1 on minified
+  # JavaScript).
+  detectPUA: false
   # Appended to clamd.conf.
   extraConfig: ""
   freshclam:
@@ -225,6 +231,23 @@ mirror:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+# YARA rules, run by ClamAV's YARA support. The mirror serves them under
+# /rules/, freshclam in every clamd pod fetches them (DatabaseCustomURL) and
+# clamd reloads; a changed rule reaches clamd with freshclam's next check
+# (clamd.freshclam.checksPerDay). With clamd.auth the clamd-proxy appends a
+# hash of the rules to the signature version, so changed rules trigger
+# rescans. Needs mirror.enabled.
+yara:
+  # The default rules in the chart's rules/ directory: about 140 rules for
+  # cryptominers, Linux malware, webshells and attacks on containers.
+  # Sources, licenses and selection in rules/README.md.
+  defaultRules: true
+  # Own rules from ConfigMaps in the release namespace, every file name
+  # unique and ending in .yar (1 MiB per ConfigMap), e.g.
+  #   - {configMap: team-rules, files: [team.yar]}
+  # ClamAV supports a subset of YARA: no modules, no global rules.
+  extra: []
 
 # Checks the whole chain: EICAR test images from an in-memory registry,
 # scanned by clamd. Run it manually with

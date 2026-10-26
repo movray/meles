@@ -24,6 +24,8 @@ data:
         root /mirror/db;
         autoindex off;
         location = /healthz { return 200 "ok\n"; }
+        # YARA rules from the ConfigMaps (yara.*).
+        location /rules/ { alias /rules/; }
         location / { try_files $uri =404; }
       }
     }

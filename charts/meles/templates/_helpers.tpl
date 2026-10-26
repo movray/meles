@@ -137,6 +137,26 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 
+{{/* File names of the YARA rules the mirror serves, one per line. */}}
+{{- define "meles.yaraFiles" -}}
+{{- if .Values.mirror.enabled }}
+{{- if .Values.yara.defaultRules }}
+meles.yar
+{{ end }}
+{{- range .Values.yara.extra }}
+{{- range .files }}
+{{- if not (hasSuffix ".yar" .) }}
+{{- fail (printf "yara.extra: %q must end in .yar" .) }}
+{{- end }}
+{{- if eq . "meles.yar" }}
+{{- fail "yara.extra: meles.yar is the name of the default rules" }}
+{{- end }}
+{{ . }}
+{{ end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "meles.scheduling" -}}
 {{- with .nodeSelector }}
 nodeSelector:

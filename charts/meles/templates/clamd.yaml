@@ -105,6 +105,8 @@ spec:
             - {name: MELES_TLS_KEY, value: /tls/tls.key}
             - {name: MELES_TOKEN_FILE, value: /token/token}
             - {name: MELES_MAX_CONNECTIONS, value: {{ .Values.clamd.auth.proxy.maxConnections | quote }}}
+            # A hash of the YARA rules goes into the VERSION reply.
+            - {name: MELES_RULES_DIR, value: /var/lib/clamav}
           ports:
             - {name: clamd-tls, containerPort: 3311}
           readinessProbe:
@@ -122,6 +124,7 @@ spec:
           volumeMounts:
             - {name: tls, mountPath: /tls, readOnly: true}
             - {name: token, mountPath: /token, readOnly: true}
+            - {name: db, mountPath: /var/lib/clamav, readOnly: true}
         {{- end }}
       volumes:
         - name: config
