@@ -222,7 +222,8 @@ func Resolve(ctx context.Context, ref string, opts Options) (repository, digest 
 }
 
 // Fetch resolves ref and returns the selected platform images. Layers are
-// fetched lazily when they are read.
+// fetched lazily when they are read; a layer download that breaks off is
+// resumed with an HTTP Range request.
 func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 	var nopts []name.Option
 	if opts.Insecure {
@@ -236,7 +237,10 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 	if kc == nil {
 		kc = authn.DefaultKeychain
 	}
-	desc, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+	// Layers are read through this transport too: it resumes downloads that
+	// break off while meles waits for clamd.
+	rt := newResumingTransport(remote.DefaultTransport, opts.Logger)
+	desc, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc), remote.WithTransport(rt))
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", ref, err)
 	}

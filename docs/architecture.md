@@ -51,6 +51,27 @@ Sending a whole layer tarball as one stream was rejected: clamd then only
 answers `stream: <Sig> FOUND` without a file name, and it runs into
 `StreamMaxLength`.
 
+### Paused downloads
+
+meles reads a layer once, as a stream, and hands its files to clamd. While
+clamd scans a large file (minutes for a big archive), meles reads nothing
+from the registry. Proxies reset such a connection: ingress-nginx, the
+usual way to expose Harbor, after 60 s (`send_timeout`; reproduced with a
+reader pausing 45 s, which works, and 75 s, which is reset; directly against
+Harbor the pause does no harm). Go reports it as `stream error …
+PROTOCOL_ERROR; received from peer`.
+
+meles therefore resumes a download that breaks off: the transport below
+go-containerregistry's auth repeats the request with
+`Range: bytes=<offset>-<end>` (some registries reject an open end) and
+continues the body seamlessly, so the blob digest is still verified at its
+end. After a redirect (e.g. to a CDN) the redirected request is resumed. A
+server that ignores `Range` sends the blob whole and the bytes already read
+are skipped. Three attempts in a row without new bytes end the scan with
+the original error. Rejected: spooling layers to disk (needs space up to
+the layer size everywhere) and raising proxy timeouts (only fixes one
+cluster).
+
 ### Incomplete is not clean
 
 Any size limit can be dodged by making a file larger than it. A file that
