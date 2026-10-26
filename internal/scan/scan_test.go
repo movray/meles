@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 
 	"git.itknecht.de/sugras/meles/internal/engine/fake"
@@ -297,5 +298,38 @@ func TestScanDoesNotCacheEngineLimits(t *testing.T) {
 	}
 	if !rep.Complete || !rep.Infected() {
 		t.Errorf("after raising the limit: complete = %v, infected = %v", rep.Complete, rep.Infected())
+	}
+}
+
+// An image saved to a local archive is scanned like one in a registry.
+func TestScanLocalInput(t *testing.T) {
+	var c testimage.Case
+	for _, tc := range testimage.Cases() {
+		if tc.Name == "eicar-whiteout" {
+			c = tc
+		}
+	}
+	img, err := testimage.Build(c.Layers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p, err := layout.Write(dir, empty.Index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AppendImage(img, layout.WithAnnotations(map[string]string{"io.containerd.image.name": "docker.io/acme/app:1"})); err != nil {
+		t.Fatal(err)
+	}
+	s := newScanner(&fake.Engine{}, NewCache(100))
+	rep, err := s.Scan(context.Background(), "", source.PlatformFilter{}, nil, WithInput(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findings(rep); fmt.Sprint(got) != fmt.Sprint(c.Want) {
+		t.Errorf("findings = %v, want %v", got, c.Want)
+	}
+	if rep.Ref != "docker.io/acme/app:1" || rep.Input != dir || rep.Platforms[0].Layers[1].CreatedBy == "" {
+		t.Errorf("ref %q, input %q, layers %+v", rep.Ref, rep.Input, rep.Platforms[0].Layers)
 	}
 }

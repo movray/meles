@@ -180,6 +180,9 @@ func (b *sarifBuilder) add(r *scan.Report) {
 			"image": r.Ref, "digest": r.Digest, "platform": f.Platform, "layer": f.Layer, "diffID": f.DiffID,
 			"status": f.Status, "sha256": f.SHA256,
 		}
+		if r.Input != "" {
+			props["input"] = r.Input
+		}
 		if f.CreatedBy != "" {
 			props["createdBy"] = f.CreatedBy
 		}

@@ -57,7 +57,11 @@ func Write(w io.Writer, format string, reps []*scan.Report, inv Invocation) erro
 
 // Table writes a human-readable report.
 func Table(w io.Writer, r *scan.Report) error {
-	fmt.Fprintf(w, "\n%s (%s)\n", safe(r.Ref), safe(short(r.Digest)))
+	if r.Input != "" && r.Input != r.Ref {
+		fmt.Fprintf(w, "\n%s (%s) from %s\n", safe(r.Ref), safe(short(r.Digest)), safe(r.Input))
+	} else {
+		fmt.Fprintf(w, "\n%s (%s)\n", safe(r.Ref), safe(short(r.Digest)))
+	}
 	fmt.Fprintf(w, "engine: %s, signatures %s, scanned in %s\n\n", safe(r.Engine.Engine), safe(r.Engine.Signatures), r.FinishedAt.Sub(r.StartedAt).Round(1e6))
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)

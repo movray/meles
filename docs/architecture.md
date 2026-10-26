@@ -11,15 +11,21 @@ CLI, server, operator and Harbor adapter share one pipeline
 
 ```
 image source ──▶ puller ──▶ layer extractor ──▶ layer cache ──▶ engine ──▶ report
-(registry)      (go-container- (one layer at a    (layer digest +  (clamd      (table, json,
-                 registry)      time, whiteouts,   engine + DB      INSTREAM)   CRD, Harbor)
-                                limits)            version)
+(registry, OCI  (go-container- (one layer at a    (layer digest +  (clamd      (table, json,
+ layout, docker  registry)      time, whiteouts,   engine + DB      INSTREAM)   sarif, CRD,
+ save; CLI)                     limits)            version)                     Harbor)
 ```
 
 - **Daemonless.** Images are pulled straight from the registry with
   [go-containerregistry](https://github.com/google/go-containerregistry);
   no Docker socket, no root. Credentials come from the Docker config, from
-  pull secrets (operator) or from the request (Harbor).
+  pull secrets (operator) or from the request (Harbor). The CLI also reads
+  local inputs (`--input`): OCI image layouts, as a directory or tar, and
+  `docker save` archives of the older format. A tar is indexed once and
+  read in place by offset; only a compressed tar is unpacked into a
+  temporary file. A directory is opened as an `os.Root`, so symlinks cannot
+  lead out of it. Layer blobs are checked against their digest while read,
+  like registry blobs, because the layer cache trusts the digest.
 - **Every layer on its own**, not the final filesystem. A file that a later
   layer deletes is still shipped and still found. Both whiteout kinds are
   followed: `.wh.<name>` (one file or directory) and the opaque

@@ -72,10 +72,24 @@ func (f PlatformFilter) String() string {
 
 // Image is a resolved image reference.
 type Image struct {
+	// Ref is the reference, or for a local input the name of the image in
+	// it (the input path if it names none).
 	Ref string
+	// Input is the path of a local layout or archive, empty for a registry.
+	Input string
 	// Digest of the manifest or index the reference points to.
 	Digest    string
 	Platforms []PlatformImage
+	close     func() error
+}
+
+// Close releases a local input once its layers are read; a no-op for
+// registry images.
+func (i *Image) Close() error {
+	if i.close == nil {
+		return nil
+	}
+	return i.close()
 }
 
 // PlatformImage is the image of one platform.
@@ -99,6 +113,10 @@ type Options struct {
 	Mirrors []Mirror
 	// Logger notes failed mirrors; nil for none.
 	Logger *slog.Logger
+	// Input reads the image from a local OCI image layout or docker save
+	// archive instead of a registry; the reference then names the image in
+	// it, empty for the only one. Close the Image when done.
+	Input string
 }
 
 // Mirror serves the images of Registry under Prefix, e.g. a Harbor proxy
@@ -225,6 +243,9 @@ func Resolve(ctx context.Context, ref string, opts Options) (repository, digest 
 // fetched lazily when they are read; a layer download that breaks off is
 // resumed with an HTTP Range request.
 func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
+	if opts.Input != "" {
+		return fetchLocal(opts.Input, ref, opts)
+	}
 	var nopts []name.Option
 	if opts.Insecure {
 		nopts = append(nopts, name.Insecure)
@@ -251,53 +272,66 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read index %s: %w", ref, err)
 		}
-		im, err := idx.IndexManifest()
-		if err != nil {
-			return nil, fmt.Errorf("read index manifest %s: %w", ref, err)
+		img.Platforms, err = collectIndex(ref, idx, opts.Platforms)
+		return img, err
+	}
+	pi, err := desc.Image()
+	if err != nil {
+		return nil, fmt.Errorf("read image %s: %w", ref, err)
+	}
+	img.Platforms, err = collectImage(ref, pi, desc.Digest.String(), opts.Platforms)
+	return img, err
+}
+
+// collectIndex returns the platform images of an index that pf selects.
+func collectIndex(ref string, idx v1.ImageIndex, pf PlatformFilter) ([]PlatformImage, error) {
+	im, err := idx.IndexManifest()
+	if err != nil {
+		return nil, fmt.Errorf("read index manifest %s: %w", ref, err)
+	}
+	var out []PlatformImage
+	for _, m := range im.Manifests {
+		if m.MediaType.IsIndex() {
+			return nil, fmt.Errorf("%s: nested image index %s is not supported", ref, m.Digest)
 		}
-		for _, m := range im.Manifests {
-			if m.MediaType.IsIndex() {
-				return nil, fmt.Errorf("%s: nested image index %s is not supported", ref, m.Digest)
+		// BuildKit attestation manifests use the platform unknown/unknown.
+		if m.Platform != nil && (m.Platform.OS == "unknown" || !pf.Match(*m.Platform)) {
+			continue
+		}
+		pi, err := idx.Image(m.Digest)
+		if err != nil {
+			return nil, fmt.Errorf("read image %s (%s): %w", ref, m.Digest, err)
+		}
+		p := m.Platform
+		if p == nil {
+			// Like containerd, take the platform from the config
+			// instead of skipping the entry.
+			if p, err = configPlatform(pi); err != nil {
+				return nil, fmt.Errorf("%s: index entry %s without platform: %w", ref, m.Digest, err)
 			}
-			// BuildKit attestation manifests use the platform unknown/unknown.
-			if m.Platform != nil && (m.Platform.OS == "unknown" || !opts.Platforms.Match(*m.Platform)) {
+			// Without an OS (e.g. OCI artifacts) no runtime runs it.
+			if p.OS == "" || p.OS == "unknown" || !pf.Match(*p) {
 				continue
 			}
-			pi, err := idx.Image(m.Digest)
-			if err != nil {
-				return nil, fmt.Errorf("read image %s (%s): %w", ref, m.Digest, err)
-			}
-			p := m.Platform
-			if p == nil {
-				// Like containerd, take the platform from the config
-				// instead of skipping the entry.
-				if p, err = configPlatform(pi); err != nil {
-					return nil, fmt.Errorf("%s: index entry %s without platform: %w", ref, m.Digest, err)
-				}
-				// Without an OS (e.g. OCI artifacts) no runtime runs it.
-				if p.OS == "" || p.OS == "unknown" || !opts.Platforms.Match(*p) {
-					continue
-				}
-			}
-			img.Platforms = append(img.Platforms, PlatformImage{Platform: p.String(), Digest: m.Digest.String(), Image: pi})
 		}
-	} else {
-		pi, err := desc.Image()
-		if err != nil {
-			return nil, fmt.Errorf("read image %s: %w", ref, err)
-		}
-		p, err := configPlatform(pi)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ref, err)
-		}
-		if opts.Platforms.Match(*p) {
-			img.Platforms = append(img.Platforms, PlatformImage{Platform: p.String(), Digest: desc.Digest.String(), Image: pi})
-		}
+		out = append(out, PlatformImage{Platform: p.String(), Digest: m.Digest.String(), Image: pi})
 	}
-	if len(img.Platforms) == 0 {
-		return nil, fmt.Errorf("%s: platforms %s: %w", ref, opts.Platforms, ErrNoPlatform)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s: platforms %s: %w", ref, pf, ErrNoPlatform)
 	}
-	return img, nil
+	return out, nil
+}
+
+// collectImage returns a single-platform image if pf selects it.
+func collectImage(ref string, pi v1.Image, digest string, pf PlatformFilter) ([]PlatformImage, error) {
+	p, err := configPlatform(pi)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", ref, err)
+	}
+	if !pf.Match(*p) {
+		return nil, fmt.Errorf("%s: platforms %s: %w", ref, pf, ErrNoPlatform)
+	}
+	return []PlatformImage{{Platform: p.String(), Digest: digest, Image: pi}}, nil
 }
 
 // configPlatform reads the platform of an image from its config.

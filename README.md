@@ -107,6 +107,7 @@ environment variables, which win over defaults.
 | `--max-files` | `500000` | hard limit of entries per layer |
 | `--concurrency` | `4` | parallel clamd sessions |
 | `--ignorefile` | | YAML file with ignore rules, see below |
+| `--input` | | read the image from a local OCI layout or `docker save` archive instead of a registry, see below |
 | `--registry-mirror` | | pull a registry's images from a mirror first, e.g. `docker.io=harbor.example.com/dockerhub`; repeatable |
 
 Registry credentials come from the Docker config (`~/.docker/config.json` or
@@ -165,6 +166,30 @@ expired, the entry counts again and the report says so. An invalid rule
 (no reason, no date, a date more than a year ahead, an unknown field) fails
 the run. Scan errors can never be ignored.
 
+### Local images
+
+`--input` scans an image that is not in a registry yet, so that a pipeline
+can check it before pushing it:
+
+```sh
+docker save app:1.4 -o app.tar && meles image --input app.tar
+docker buildx build --output type=oci,dest=app.tar . && meles image --input app.tar app:1.4
+podman save --format oci-archive -o app.tar app:1.4 && meles image --input app.tar
+meles image --input oci-layout/          # an OCI image layout directory
+```
+
+meles reads OCI image layouts (a directory or a tar of one, as written by
+`docker save` since Docker 25, buildx `type=oci`, `podman save --format
+oci-archive`, skopeo `oci-archive:`) and the `docker save` format of older
+Docker versions and of plain `podman save`. Tars may be gzip or zstd
+compressed; a compressed tar is unpacked into one temporary file first
+(`TMPDIR`), an uncompressed one is read in place. If the input holds several
+images, name the one to scan: `meles image --input all.tar app:1.4`. The
+report names the image as the archive does; for an archive without names
+(e.g. `crane pull --format=oci`), the name you give is used, so that ignore
+rules with `image:` match. Layer contents are checked against their digests
+while they are read, as for a registry.
+
 ### CI
 
 GitHub Actions / Gitea Actions:
@@ -172,6 +197,15 @@ GitHub Actions / Gitea Actions:
 ```yaml
 - name: Scan image for malware
   run: meles image --clamd tcp://clamd:3310 "$IMAGE"
+```
+
+Scan before pushing:
+
+```yaml
+- run: docker build -t app:${{ github.sha }} . && docker save app:${{ github.sha }} -o app.tar
+- name: Scan image for malware
+  run: meles image --clamd tcp://clamd:3310 --input app.tar
+- run: docker push app:${{ github.sha }}
 ```
 
 With GitHub code scanning, write SARIF and upload it even when meles fails

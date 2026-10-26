@@ -123,6 +123,12 @@ func WithKeychain(kc authn.Keychain) Option {
 	return func(o *source.Options) { o.Keychain = kc }
 }
 
+// WithInput reads the image from a local OCI image layout or docker save
+// archive; the reference then names the image in it, empty for the only one.
+func WithInput(path string) Option {
+	return func(o *source.Options) { o.Input = path }
+}
+
 // WithInsecure allows a plain HTTP registry for this scan.
 func WithInsecure() Option {
 	return func(o *source.Options) { o.Insecure = true }
@@ -151,9 +157,11 @@ func (s *Scanner) Scan(ctx context.Context, ref string, platforms source.Platfor
 	if err != nil {
 		return nil, err
 	}
+	defer img.Close()
 
 	rep := &Report{
-		Ref:       ref,
+		Ref:       img.Ref,
+		Input:     img.Input,
 		Digest:    img.Digest,
 		Engine:    version,
 		Platform:  platforms.String(),

@@ -143,5 +143,16 @@ jobs:
           check eicar-opaque 1
           # The chart's default YARA rules in the testcluster's clamd.
           check yara-xmrig-config 1
+          # Local inputs (--input): an OCI layout and an old-style docker
+          # save tar of the whiteout case, written by crane.
+          crane="go run github.com/google/go-containerregistry/cmd/crane@v0.22.1"
+          $crane pull --insecure --format=oci 127.0.0.1:5055/selftest/eicar-whiteout:latest /tmp/whiteout-oci
+          $crane pull --insecure 127.0.0.1:5055/selftest/eicar-whiteout:latest /tmp/whiteout.tar
+          for in in /tmp/whiteout-oci /tmp/whiteout.tar; do
+            got=0
+            /tmp/meles image --input "$in" --format json > /tmp/input.json || got=$?
+            echo "--input $in: exit $got, want 1"
+            [ "$got" = "1" ] && grep -q '"status": "deleted"' /tmp/input.json || fail=1
+          done
           exit $fail
       - run: MELES_TEST_YARA=1 make test-integration CLAMD="$MELES_CLAMD"

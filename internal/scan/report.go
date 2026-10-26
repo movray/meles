@@ -25,7 +25,12 @@ const (
 
 // Report is the result of scanning one image reference.
 type Report struct {
-	Ref    string         `json:"ref"`
+	// Ref is the image reference; for a local input the name of the image
+	// in it, or the input path if it names none.
+	Ref string `json:"ref"`
+	// Input is the local OCI layout or docker save archive the image was
+	// read from; empty for a registry.
+	Input  string         `json:"input,omitempty"`
 	Digest string         `json:"digest"`
 	Engine engine.Version `json:"engine"`
 	// Platform is the platform filter that was applied ("all", "host", ...).
