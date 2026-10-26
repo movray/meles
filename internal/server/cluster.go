@@ -37,13 +37,15 @@ var errNotSynced = errors.New("the MalwareReports of the cluster are not loaded 
 // KubeReports reads MalwareReports from the Kubernetes API through an
 // informer cache.
 type KubeReports struct {
-	cache  cache.Cache
-	client client.Client
-	synced atomic.Bool
+	cache   cache.Cache
+	client  client.Client
+	synced  atomic.Bool
+	ignores *KubeIgnores
 }
 
-// NewKubeReports creates the cache; Start fills it.
-func NewKubeReports(cfg *rest.Config) (*KubeReports, error) {
+// NewKubeReports creates the cache; Start fills it. With ignores it also
+// caches MalwareIgnores and ClusterMalwareIgnores for Ignores.
+func NewKubeReports(cfg *rest.Config, ignores bool) (*KubeReports, error) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		return nil, err
@@ -60,8 +62,20 @@ func NewKubeReports(cfg *rest.Config) (*KubeReports, error) {
 	if _, err := c.GetInformer(context.Background(), &v1alpha1.MalwareReport{}); err != nil {
 		return nil, fmt.Errorf("informer for MalwareReports: %w", err)
 	}
-	return &KubeReports{cache: c, client: cl}, nil
+	k := &KubeReports{cache: c, client: cl}
+	if ignores {
+		for _, obj := range []client.Object{&v1alpha1.MalwareIgnore{}, &v1alpha1.ClusterMalwareIgnore{}} {
+			if _, err := c.GetInformer(context.Background(), obj); err != nil {
+				return nil, fmt.Errorf("informer for %T: %w", obj, err)
+			}
+		}
+		k.ignores = &KubeIgnores{k: k}
+	}
+	return k, nil
 }
+
+// Ignores returns the ignore objects, nil unless created with ignores.
+func (k *KubeReports) Ignores() *KubeIgnores { return k.ignores }
 
 // OnChange calls fn for every report added, changed or deleted, including
 // all existing reports once the cache starts.

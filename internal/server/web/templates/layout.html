@@ -19,6 +19,7 @@
       <a href="/runs"{{if eq .Nav "runs"}} aria-current="page"{{end}}>Runs</a>
       <a href="/reports"{{if eq .Nav "reports"}} aria-current="page"{{end}}>Reports</a>
       {{if .Cluster}}<a href="/cluster"{{if eq .Nav "cluster"}} aria-current="page"{{end}}>Cluster</a>{{end}}
+      {{if .Ignores}}<a href="/ignores"{{if eq .Nav "ignores"}} aria-current="page"{{end}}>Ignore rules</a>{{end}}
     </nav>
     {{if .Engine.CheckedAt.IsZero}}
     <div class="engine"><span class="dot" aria-hidden="true"></span>Checking clamd…</div>

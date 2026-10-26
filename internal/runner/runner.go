@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"git.itknecht.de/sugras/meles/internal/ignore"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/source"
 	"git.itknecht.de/sugras/meles/internal/store"
@@ -29,7 +30,16 @@ type Runner struct {
 
 	queue chan int64
 	wg    sync.WaitGroup
+	// ignore returns the ignore rules for a finished scan.
+	ignore IgnoreFunc
 }
+
+// IgnoreFunc returns the ignore rules in effect. On an error the rules it
+// still returns are applied; everything else counts.
+type IgnoreFunc func(ctx context.Context) (*ignore.Rules, error)
+
+// SetIgnore sets the source of ignore rules; call it before Start.
+func (r *Runner) SetIgnore(fn IgnoreFunc) { r.ignore = fn }
 
 // New returns a runner. Call Start to process the queue.
 func New(st *store.Store, sc *scan.Scanner, workers int, timeout time.Duration, log *slog.Logger) *Runner {
@@ -113,11 +123,26 @@ func (r *Runner) execute(ctx context.Context, id int64) {
 	if err != nil {
 		log.Error("scan failed", "err", err)
 	} else {
-		log.Info("scan finished", "infected", rep.Infected(), "findings", len(rep.Findings()), "files", rep.Files())
+		r.applyIgnore(dbctx, rep, log)
+		log.Info("scan finished", "infected", rep.Infected(), "findings", len(rep.ActiveFindings()), "ignored", len(rep.Findings())-len(rep.ActiveFindings()), "files", rep.Files())
 	}
 	if err := r.store.FinishRun(dbctx, id, rep, err); err != nil {
 		log.Error("store result", "err", err)
 	}
+}
+
+// applyIgnore marks what the rules in effect now ignore. A run keeps the
+// verdict of its time: later rules apply from the next run on.
+func (r *Runner) applyIgnore(ctx context.Context, rep *scan.Report, log *slog.Logger) {
+	if r.ignore == nil {
+		return
+	}
+	rules, err := r.ignore(ctx)
+	if err != nil {
+		// Without the rules more counts, never less.
+		log.Warn("ignore rules not loaded, the run counts what they would ignore", "err", err)
+	}
+	rep.ApplyIgnore(rules, time.Now())
 }
 
 func (r *Runner) scan(ctx context.Context, run *store.Run, progress func(scan.Progress)) (*scan.Report, error) {

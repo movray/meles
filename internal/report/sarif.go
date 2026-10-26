@@ -165,7 +165,7 @@ type sarifBuilder struct {
 }
 
 func (b *sarifBuilder) add(r *scan.Report) {
-	repo := repository(r.Ref)
+	repo := Repository(r.Ref)
 	for _, f := range r.Findings() {
 		idx := b.rule(f.Signature, f.Rule, false)
 		msg := fmt.Sprintf("%s detected %s in %s (%s, layer %d).", engineName(r), f.Signature, f.Path, f.Platform, f.Layer)
@@ -273,9 +273,9 @@ func fileURI(path string) string {
 	return (&url.URL{Path: strings.TrimLeft(path, "/")}).EscapedPath()
 }
 
-// repository returns the repository of a reference, e.g.
+// Repository returns the repository of a reference, e.g.
 // "index.docker.io/library/alpine" for "alpine:3.20".
-func repository(ref string) string {
+func Repository(ref string) string {
 	if r, err := name.ParseReference(ref); err == nil {
 		return r.Context().Name()
 	}

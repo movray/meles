@@ -67,3 +67,8 @@
   <label for="enabled">Schedule active</label>
 </div>
 {{end}}
+
+{{define "ignoredBy"}}{{with .}}<div class="sub">{{if .Expired}}<strong>ignore rule {{.Rule}} expired on {{.Expires}}</strong> – counts again{{else}}<span class="tag">ignored</span> by {{.Rule}} until {{.Expires}}: {{.Reason}}{{end}}</div>{{end}}{{end}}
+
+{{/* ignoreButton opens the ignore form prefilled for one entry; not for entries a rule already ignores. */}}
+{{define "ignoreButton"}}{{if not .Ignored}}<a class="button secondary small" href="{{.URL}}" title="Create an ignore rule for this file">Ignore…</a>{{end}}{{end}}

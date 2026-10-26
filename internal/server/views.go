@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"git.itknecht.de/sugras/meles/internal/ignore"
 	"git.itknecht.de/sugras/meles/internal/report"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/store"
@@ -29,13 +31,15 @@ type page struct {
 	Queue   int
 	// Cluster shows the navigation entry for the operator's reports.
 	Cluster bool
+	// Ignores shows the navigation entry and buttons for ignore rules.
+	Ignores bool
 	// Refresh reloads the page after this many seconds (0 = never), used
 	// while runs are active.
 	Refresh int
 	Data    any
 }
 
-var pageNames = []string{"dashboard", "scans", "scan_form", "scan", "runs", "run", "reports", "cluster", "cluster_report", "error"}
+var pageNames = []string{"dashboard", "scans", "scan_form", "scan", "runs", "run", "reports", "cluster", "cluster_report", "ignores", "ignore_form", "error"}
 
 func (s *Server) parseTemplates() (map[string]*pageTemplate, error) {
 	out := map[string]*pageTemplate{}
@@ -55,6 +59,7 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, p page) 
 	p.Version = s.version
 	p.Queue = s.runner.QueueLen()
 	p.Cluster = s.cluster != nil
+	p.Ignores = s.ignores != nil
 	var buf bytes.Buffer
 	if err := s.pages[name].t.Execute(&buf, p); err != nil {
 		s.log.Error("render", "page", name, "err", err)
@@ -146,6 +151,37 @@ func (s *Server) funcs() template.FuncMap {
 		"isDone":        func(r store.Run) bool { return r.Done() },
 		"clusterStatus": clusterStatus,
 		"rescanPending": rescanPending,
+		// As users write it: docker.io, not index.docker.io.
+		"repository": func(ref string) string {
+			repo := report.Repository(ref)
+			if rest, ok := strings.CutPrefix(repo, "index.docker.io/"); ok {
+				return "docker.io/" + rest
+			}
+			return repo
+		},
+		"activeFindings": func(fs []scan.Finding) int {
+			n := 0
+			for _, f := range fs {
+				if f.Ignored == nil || f.Ignored.Expired {
+					n++
+				}
+			}
+			return n
+		},
+		"activeSkipped": func(ss []scan.SkippedFile) int {
+			n := 0
+			for _, s := range ss {
+				if s.Ignored == nil || s.Ignored.Expired {
+					n++
+				}
+			}
+			return n
+		},
+		"ignoreLink": ignoreLink,
+		"expired": func(date string) bool {
+			t, err := time.Parse("2006-01-02", date)
+			return err == nil && time.Now().After(t.Add(24*time.Hour))
+		},
 	}
 }
 
@@ -351,4 +387,31 @@ func weekdays(field string) (string, bool) {
 		out = append(out, n)
 	}
 	return strings.Join(out, ", "), true
+}
+
+// ignoreButton is the data of the "ignoreButton" template.
+type ignoreButton struct {
+	URL string
+	// Ignored is set if a rule in effect ignores the entry already.
+	Ignored bool
+}
+
+// ignoreLink returns the link to the ignore form, prefilled for an entry;
+// ignored is its *ignore.Match or *v1alpha1.IgnoreMatch.
+func ignoreLink(path, sig, repo, sha, namespace, back string, ignored any) ignoreButton {
+	q := url.Values{"path": {path}, "signature": {sig}, "image": {repo}, "back": {back}}
+	if sha != "" {
+		q.Set("sha256", sha)
+	}
+	if namespace != "" {
+		q.Set("namespace", namespace)
+	}
+	b := ignoreButton{URL: "/ignores/new?" + q.Encode()}
+	switch m := ignored.(type) {
+	case *ignore.Match:
+		b.Ignored = m != nil && !m.Expired
+	case *v1alpha1.IgnoreMatch:
+		b.Ignored = m != nil && !m.Expired
+	}
+	return b
 }

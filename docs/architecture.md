@@ -286,6 +286,24 @@ rule. Every rule needs a reason and an expiry date at most a year ahead. A
 scan error can never be ignored. The status of the rule objects lists
 invalid and expired rules.
 
+The server can create rules from its UI (`--cluster-ignore`, chart
+`server.clusterReports.ignore`, off by default). Each rule becomes its own
+object, not an entry in SQLite, so that the CRDs stay the only source and
+`kubectl get malwareignores` shows everything. The objects carry the label
+`app.kubernetes.io/managed-by: meles-server` and the creator from
+oauth2-proxy's `X-Forwarded-Email` in `meles.io/created-by`. The UI deletes
+only objects with that label: RBAC cannot restrict `delete` by label, so the
+server checks it, and an object applied from Git would be applied again
+anyway. The origin of the others is read from their metadata (Argo CD's
+tracking annotation, Flux's labels, Helm's `managed-by`); kubectl leaves no
+mark.
+
+The server's own runs apply the `ClusterMalwareIgnore`s (they belong to no
+namespace) and `--ignorefile`. Unlike reports, a run keeps the verdict of
+its time; a new rule applies from the next run. Runs count only what is not
+ignored, the stored report keeps the ignored entries marked. If the rules
+cannot be read, the run applies none of them: more counts, never less.
+
 ### Private registries
 
 The operator uses the `imagePullSecrets` of the pod and of its service
@@ -419,7 +437,7 @@ scan.
 |---|---|---|
 | clamd + proxy | none | TLS port 3310 with token; NetworkPolicy: only pods of the release (plus `networkPolicy.clamdExtraFrom`) |
 | Mirror | none | HTTP, only for clamd (NetworkPolicy) |
-| Server | read `malwarereports` cluster-wide, `patch` for the rescan button (optional) | UI and API without login of its own: oauth2-proxy sidecar or keep internal |
+| Server | read `malwarereports` cluster-wide, `patch` for the rescan button (optional); with UI ignore rules (off by default) `create`/`delete` on `malwareignores` and `clustermalwareignores` | UI and API without login of its own: oauth2-proxy sidecar or keep internal |
 | Operator | read `pods`, `nodes`, `jobs`; write `malwarereports`; read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it; with the scan gate `patch` on `pods` and `create` on events in all namespaces | health port; `/metrics` and `/status` on 8080 (NetworkPolicy: server and `operatorMetricsFrom` only); with the scan gate the webhook (HTTPS, port 9443) |
 | Harbor adapter | none | HTTP API with bearer token |
 
@@ -428,7 +446,10 @@ scan.
   privileges, so its namespace needs the `baseline` Pod Security level.
 - clamd parses untrusted files from every image; that is its job, and the
   reason it runs in its own pod without permissions and behind the proxy.
-- Everyone who can open the UI sees the reports of all namespaces.
+- Everyone who can open the UI sees the reports of all namespaces, and with
+  UI ignore rules can take findings out of the verdict in any namespace.
+  The creator is recorded from oauth2-proxy's headers, which are only
+  trustworthy because the server then listens on 127.0.0.1 behind it.
 - The scan gate is no barrier against someone who may update pods in a
   gated namespace: scheduling gates can be removed by anyone with that
   right. It protects against rollouts of infected images, not against
@@ -455,6 +476,7 @@ scan.
 | Schedules | cron (`robfig/cron`); a run is skipped while the previous one is active | familiar syntax |
 | Login | none in the server | authentication belongs in the infrastructure |
 | Cluster reports | read from the CRDs, history only in SQLite | one source of truth |
+| Ignore rules from the UI | off by default; one CRD object per rule, labelled as the server's; the UI deletes only those; server runs apply `ClusterMalwareIgnore`s | an ignore rule can let an image pass the scan gate; the CRDs stay the one source; Git-managed rules are changed in Git |
 | Operator reports | one per workload and container, owned by the workload | teams see their own, cleanup by garbage collection |
 | Pull secrets | opt-in per namespace | cluster-wide secret access is a lot of power |
 | Registry rate limits | the operator pulls every image itself, no throttling of its own; pull-through cache or credentials recommended | a cache helps the kubelet too, throttling only delays scans |

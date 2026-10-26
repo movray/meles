@@ -228,6 +228,10 @@ make run-server          # http://127.0.0.1:8080, database in meles.db
 Runs and reports are stored in SQLite. The server has **no login of its own**:
 keep it internal or put an authenticating proxy in front of it.
 
+`meles server --ignorefile meles-ignore.yaml` applies ignore rules (format
+below) to its runs; the file is read at every run. A run keeps the verdict
+of its time: a new rule applies from the next run on.
+
 To try it with infected test images locally, see
 [development.md](docs/development.md#eicar).
 
@@ -277,6 +281,7 @@ Important values (see `charts/meles/values.yaml`):
 | `server.timezone` | `UTC` | time zone of cron schedules |
 | `server.clusterReports.enabled` | with `operator.enabled` | page "Cluster" with the operator's MalwareReports (ClusterRole: read `malwarereports`) |
 | `server.clusterReports.rescan` | `true` | "Rescan" button in the UI (adds `patch` on `malwarereports`) |
+| `server.clusterReports.ignore` | `false` | "Ignore…" button and page "Ignore rules" (adds `create`/`delete` on `malwareignores` and `clustermalwareignores`), see below |
 | `server.clusterReports.historyDays` | `365` | keep the history of the reports this many days |
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `scan.registryMirrors` | `[]` | mirrors the server and the operator pull from first, e.g. `docker.io=harbor.example.com/dockerhub` (see `--registry-mirror`) |
@@ -427,6 +432,23 @@ $ kubectl get clustermalwareignores
 NAME             RULES   PROBLEMS   AGE
 known-harmless   1                  2m
 ```
+
+With `server.clusterReports.ignore=true` rules can also be created in the
+web UI: the button **Ignore…** at a finding or skipped file opens a form
+prefilled with path, signature, image and the file's sha256. Reason and
+expiry (default 90 days, at most a year) are required, and the rule applies
+either to the report's namespace (a `MalwareIgnore`) or to the whole
+cluster (a `ClusterMalwareIgnore`). Every rule becomes an object of its own,
+labelled `app.kubernetes.io/managed-by: meles-server`, with the user from
+oauth2-proxy (`X-Forwarded-Email`) in the annotation `meles.io/created-by`.
+The page **Ignore rules** lists all rules with their origin: created in the
+UI (by whom), or applied by Argo CD, Flux, Helm, or kubectl/Git. The UI
+deletes only the rules it created. The server's own runs apply the
+`ClusterMalwareIgnore`s too.
+
+This is **off by default**: everyone who can open the UI could then take
+findings out of the verdict and, with the scan gate on, let an image run.
+Limit who may log in first (`server.oauth2Proxy.allowedGroups`).
 
 The web UI shows the reports on the page **Cluster** (filter by result,
 namespace or image; details with findings and skipped files; a "Rescan"

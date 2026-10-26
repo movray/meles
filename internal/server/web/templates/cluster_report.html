@@ -79,7 +79,7 @@
   <p class="note">Files with the status <em>deleted</em> were removed by a later layer but are still shipped with the image: everyone who pulls it receives them, and they can be restored from that layer.</p>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Status</th><th>Path</th><th>Signature</th><th>Platform</th><th>Layer</th><th>Created by</th></tr></thead>
+    <thead><tr><th>Status</th><th>Path</th><th>Signature</th><th>Platform</th><th>Layer</th><th>Created by</th>{{if $.Ignores}}<th></th>{{end}}</tr></thead>
     <tbody>
     {{range $r.Findings}}
     <tr{{if and .Ignored (not .Ignored.Expired)}} class="row-ignored"{{end}}>
@@ -89,6 +89,7 @@
       <td><code>{{.Platform}}</code></td>
       <td><span title="{{.DiffID}}">{{.Layer}} · <code>{{short .DiffID}}</code></span></td>
       <td class="created-by"><code title="{{.CreatedBy}}">{{.CreatedBy}}</code></td>
+      {{if $.Ignores}}<td class="actions">{{template "ignoreButton" (ignoreLink .Path .Signature $r.Image.Repository .SHA256 $m.Namespace (printf "/cluster/%s/%s" $m.Namespace $m.Name) .Ignored)}}</td>{{end}}
     </tr>
     {{end}}
     </tbody>
@@ -100,13 +101,13 @@
 {{if $r.Skipped}}
 <section class="card">
   <div class="card-head"><h2>Skipped files</h2>{{$total := add $r.Summary.Skipped $r.Summary.IgnoredSkipped}}{{if gt $total (len $r.Skipped)}}<span class="sub">first {{len $r.Skipped}} of {{$total}}</span>{{end}}</div>
-  <p class="note">These files were <strong>not scanned</strong>. <code>Heuristics.Limits.Exceeded.*</code> means one of clamd's limits (chart values <code>clamd.maxScanSize</code>, <code>clamd.maxScanTime</code>, <code>clamd.maxFiles</code>, <code>scan.maxFileSize</code>). Known harmless cases can be ignored with a <code>MalwareIgnore</code> or <code>ClusterMalwareIgnore</code>.</p>
+  <p class="note">These files were <strong>not scanned</strong>. <code>Heuristics.Limits.Exceeded.*</code> means one of clamd's limits (chart values <code>clamd.maxScanSize</code>, <code>clamd.maxScanTime</code>, <code>clamd.maxFiles</code>, <code>scan.maxFileSize</code>). Known harmless cases can be ignored with a <code>MalwareIgnore</code> or <code>ClusterMalwareIgnore</code>{{if $.Ignores}} (button <em>Ignore…</em>){{end}}.</p>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Path</th><th>Platform</th><th class="num">Layer</th><th class="num">Size</th><th>Reason</th></tr></thead>
+    <thead><tr><th>Path</th><th>Platform</th><th class="num">Layer</th><th class="num">Size</th><th>Reason</th>{{if $.Ignores}}<th></th>{{end}}</tr></thead>
     <tbody>
     {{range $r.Skipped}}
-    <tr{{if and .Ignored (not .Ignored.Expired)}} class="row-ignored"{{end}}><td class="ref"><code>{{.Path}}</code>{{template "ignoredBy" .Ignored}}</td><td><code>{{.Platform}}</code></td><td class="num">{{.Layer}}</td><td class="num">{{bytes .Size}}</td><td>{{.Reason}}</td></tr>
+    <tr{{if and .Ignored (not .Ignored.Expired)}} class="row-ignored"{{end}}><td class="ref"><code>{{.Path}}</code>{{template "ignoredBy" .Ignored}}</td><td><code>{{.Platform}}</code></td><td class="num">{{.Layer}}</td><td class="num">{{bytes .Size}}</td><td>{{.Reason}}</td>{{if $.Ignores}}<td class="actions">{{template "ignoreButton" (ignoreLink .Path .Signature $r.Image.Repository .SHA256 $m.Namespace (printf "/cluster/%s/%s" $m.Namespace $m.Name) .Ignored)}}</td>{{end}}</tr>
     {{end}}
     </tbody>
   </table>
@@ -115,4 +116,3 @@
 {{end}}
 {{end}}
 
-{{define "ignoredBy"}}{{with .}}<div class="sub">{{if .Expired}}<strong>ignore rule {{.Rule}} expired on {{.Expires}}</strong> – counts again{{else}}<span class="tag">ignored</span> by {{.Rule}} until {{.Expires}}: {{.Reason}}{{end}}</div>{{end}}{{end}}

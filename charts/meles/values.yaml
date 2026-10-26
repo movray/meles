@@ -55,6 +55,15 @@ server:
     enabled: null
     # "Rescan" button: sets the meles.io/rescan annotation (adds patch).
     rescan: true
+    # "Ignore…" button at findings and skipped files: creates a
+    # MalwareIgnore in the report's namespace or a ClusterMalwareIgnore,
+    # with the user from oauth2-proxy as creator; the server's own runs
+    # then also apply the ClusterMalwareIgnores. Off by default: everyone
+    # who can open the UI could then take findings out of the verdict and,
+    # with the scan gate on, let an image run. Limit the UI first
+    # (oauth2Proxy.allowedGroups). Adds create/delete on both kinds; the
+    # UI only deletes objects it created.
+    ignore: false
     # Every change of a report is recorded in the server's database; events
     # older than this are deleted (the last one of each report is kept).
     historyDays: 365

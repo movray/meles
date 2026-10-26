@@ -38,6 +38,7 @@ type Server struct {
 	pages     map[string]*pageTemplate
 	cluster   ClusterReports
 	rescan    bool
+	ignores   ClusterIgnores
 	// clusterName tags the history of the cluster's reports.
 	clusterName string
 	operator    OperatorStatus
@@ -68,6 +69,8 @@ type Config struct {
 	Cluster ClusterReports
 	// ClusterRescan allows requesting a rescan from the UI.
 	ClusterRescan bool
+	// Ignores, if set, allows creating ignore rules from the UI.
+	Ignores ClusterIgnores
 	// ClusterName tags the history of the cluster's reports, for several
 	// clusters later; empty for one.
 	ClusterName string
@@ -94,6 +97,7 @@ func New(c Config) (*Server, error) {
 		version:     c.Version,
 		cluster:     c.Cluster,
 		rescan:      c.ClusterRescan,
+		ignores:     c.Ignores,
 		clusterName: c.ClusterName,
 		operator:    c.Operator,
 	}
@@ -175,6 +179,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /cluster", s.handleCluster)
 	mux.HandleFunc("GET /cluster/{namespace}/{name}", s.handleClusterReport)
 	mux.HandleFunc("POST /cluster/{namespace}/{name}/rescan", s.handleClusterRescan)
+	mux.HandleFunc("GET /ignores", s.handleIgnores)
+	mux.HandleFunc("GET /ignores/new", s.handleIgnoreNew)
+	mux.HandleFunc("POST /ignores", s.handleIgnoreCreate)
+	mux.HandleFunc("POST /ignores/delete", s.handleIgnoreDelete)
 
 	mux.HandleFunc("GET /api/scans", s.apiListScans)
 	mux.HandleFunc("POST /api/scans", s.apiCreateScan)

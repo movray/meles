@@ -28,6 +28,7 @@
       {{else if eq $run.Status "error"}}{{$run.Error}}
       {{else if eq $run.Status "queued"}}queued {{ago $run.QueuedAt}}
       {{else}}{{num $run.Files}} files scanned in {{dur $run.Duration}}{{if $run.Skipped}} · <strong>{{$run.Skipped}} skipped</strong>{{end}}{{end}}
+      {{with $rep}}{{$n := sub (add (len .Findings) (len .Skipped)) (add (activeFindings .Findings) (activeSkipped .Skipped))}}{{if $n}} · {{$n}} {{if eq $n 1}}entry{{else}}entries{{end}} ignored by rules (listed below){{end}}{{end}}
     </div>
   </div>
 </section>
@@ -51,16 +52,17 @@
   <p class="note">Files with the status <em>deleted</em> were removed by a later layer but are still shipped with the image: everyone who pulls it receives them, and they can be restored from that layer.</p>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Status</th><th>Path</th><th>Signature</th><th>Platform</th><th>Layer</th><th>Created by</th></tr></thead>
+    <thead><tr><th>Status</th><th>Path</th><th>Signature</th><th>Platform</th><th>Layer</th><th>Created by</th>{{if $.Ignores}}<th></th>{{end}}</tr></thead>
     <tbody>
     {{range $findings}}
-    <tr>
+    <tr{{if and .Ignored (not .Ignored.Expired)}} class="row-ignored"{{end}}>
       <td>{{template "badge" .Status}}{{if .HiddenByLayer}}<div class="sub">{{.HiddenHow}} in layer {{.HiddenByLayer}}</div>{{end}}</td>
-      <td class="ref"><code>{{.Path}}</code></td>
+      <td class="ref"><code>{{.Path}}</code>{{template "ignoredBy" .Ignored}}</td>
       <td><code>{{.Signature}}</code>{{with yararule .Signature}}<div class="sub">rule by {{.Author}} · <a href="{{.URL}}" rel="noopener noreferrer">{{.License}}</a></div>{{end}}</td>
       <td><code>{{.Platform}}</code></td>
       <td><span title="{{.DiffID}}">{{.Layer}} · <code>{{short .DiffID}}</code></span></td>
       <td class="created-by"><code title="{{.CreatedBy}}">{{.CreatedBy}}</code></td>
+      {{if $.Ignores}}<td class="actions">{{template "ignoreButton" (ignoreLink .Path .Signature (repository $run.ImageRef) .SHA256 "" (printf "/runs/%d" $run.ID) .Ignored)}}</td>{{end}}
     </tr>
     {{end}}
     </tbody>
@@ -81,8 +83,8 @@
       <td><code title="{{.Digest}}">{{short .Digest}}</code></td>
       <td class="num">{{len .Layers}}</td>
       <td class="num">{{num .Files}}</td>
-      <td class="num">{{if .Findings}}<strong class="ink-critical">{{len .Findings}}</strong>{{else}}0{{end}}</td>
-      <td class="num">{{len .Skipped}}</td>
+      <td class="num">{{$f := activeFindings .Findings}}{{if $f}}<strong class="ink-critical">{{$f}}</strong>{{else}}0{{end}}{{if ne $f (len .Findings)}}<div class="sub">{{sub (len .Findings) $f}} ignored</div>{{end}}</td>
+      <td class="num">{{$s := activeSkipped .Skipped}}{{$s}}{{if ne $s (len .Skipped)}}<div class="sub">{{sub (len .Skipped) $s}} ignored</div>{{end}}</td>
     </tr>
     {{end}}
     </tbody>
@@ -119,10 +121,10 @@
   <p class="note">These files were <strong>not scanned</strong>, usually because they exceed the maximum file size.</p>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Path</th><th>Platform</th><th class="num">Layer</th><th class="num">Size</th><th>Reason</th></tr></thead>
+    <thead><tr><th>Path</th><th>Platform</th><th class="num">Layer</th><th class="num">Size</th><th>Reason</th>{{if $.Ignores}}<th></th>{{end}}</tr></thead>
     <tbody>
     {{range $skipped}}
-    <tr><td class="ref"><code>{{.Path}}</code></td><td><code>{{.Platform}}</code></td><td class="num">{{.Layer}}</td><td class="num">{{bytes .Size}}</td><td>{{.Reason}}</td></tr>
+    <tr{{if and .Ignored (not .Ignored.Expired)}} class="row-ignored"{{end}}><td class="ref"><code>{{.Path}}</code>{{template "ignoredBy" .Ignored}}</td><td><code>{{.Platform}}</code></td><td class="num">{{.Layer}}</td><td class="num">{{bytes .Size}}</td><td>{{.Reason}}</td>{{if $.Ignores}}<td class="actions">{{template "ignoreButton" (ignoreLink .Path .Signature (repository $run.ImageRef) .SHA256 "" (printf "/runs/%d" $run.ID) .Ignored)}}</td>{{end}}</tr>
     {{end}}
     </tbody>
   </table>

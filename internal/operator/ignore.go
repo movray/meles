@@ -20,21 +20,6 @@ import (
 	"git.itknecht.de/sugras/meles/internal/ignore"
 )
 
-// toRules converts the rules of an ignore object. Rules are named after the
-// object ("<source>#<n>", or "<source>/<name>" for named rules), so that a
-// report tells where an exception comes from.
-func toRules(spec v1alpha1.IgnoreSpec, source string) []ignore.Rule {
-	out := make([]ignore.Rule, len(spec.Rules))
-	for i, r := range spec.Rules {
-		name := fmt.Sprintf("%s#%d", source, i+1)
-		if r.Name != "" {
-			name = source + "/" + r.Name
-		}
-		out[i] = ignore.Rule{Name: name, Path: r.Path, Signature: r.Signature, Image: r.Image, SHA256: r.SHA256, Reason: r.Reason, Expires: r.Expires}
-	}
-	return out
-}
-
 // rulesFor returns the valid ignore rules for reports in namespace: those
 // of all ClusterMalwareIgnores and of the MalwareIgnores in the namespace.
 // Invalid rules are left out; the status of their object says why.
@@ -49,12 +34,12 @@ func (r *Reconciler) rulesFor(ctx context.Context, namespace string, now time.Ti
 	}
 	var sets []*ignore.Rules
 	for _, o := range cluster.Items {
-		rs, _ := ignore.New(toRules(o.Spec, o.Name), o.Name, now)
+		rs, _ := ignore.New(ignore.FromSpec(o.Spec, o.Name), o.Name, now)
 		sets = append(sets, rs)
 	}
 	for _, o := range local.Items {
 		src := o.Namespace + "/" + o.Name
-		rs, _ := ignore.New(toRules(o.Spec, src), src, now)
+		rs, _ := ignore.New(ignore.FromSpec(o.Spec, src), src, now)
 		sets = append(sets, rs)
 	}
 	return ignore.Merge(sets...), nil
@@ -154,12 +139,12 @@ func (r *IgnoreStatusReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	now := time.Now()
-	rules, errs := ignore.New(toRules(*spec, source), source, now)
+	rules, errs := ignore.New(ignore.FromSpec(*spec, source), source, now)
 	want := v1alpha1.IgnoreStatus{Rules: rules.Len()}
 	for _, err := range errs {
 		want.Problems = append(want.Problems, err.Error())
 	}
-	for _, rule := range toRules(*spec, source) {
+	for _, rule := range ignore.FromSpec(*spec, source) {
 		if t, err := time.Parse("2006-01-02", rule.Expires); err == nil && now.After(t.Add(24*time.Hour)) {
 			want.Problems = append(want.Problems, fmt.Sprintf("rule %s: expired on %s, no longer in effect", rule.Name, rule.Expires))
 			want.Rules--

@@ -31,7 +31,8 @@ metadata:
 {{- if include "meles.clusterReports" . }}
 ---
 # Read the operator's MalwareReports in all namespaces; patch only to set
-# the meles.io/rescan annotation from the UI.
+# the meles.io/rescan annotation from the UI. With clusterReports.ignore,
+# create and delete ignore rules from the UI.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -43,6 +44,11 @@ rules:
   - apiGroups: [meles.io]
     resources: [malwarereports]
     verbs: [get, list, watch{{ if .Values.server.clusterReports.rescan }}, patch{{ end }}]
+  {{- if .Values.server.clusterReports.ignore }}
+  - apiGroups: [meles.io]
+    resources: [malwareignores, clustermalwareignores]
+    verbs: [get, list, watch, create, delete]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -114,6 +120,7 @@ spec:
             {{- if include "meles.clusterReports" . }}
             - {name: MELES_CLUSTER_REPORTS, value: "true"}
             - {name: MELES_CLUSTER_RESCAN, value: {{ .Values.server.clusterReports.rescan | quote }}}
+            - {name: MELES_CLUSTER_IGNORE, value: {{ .Values.server.clusterReports.ignore | quote }}}
             - {name: MELES_HISTORY_DAYS, value: {{ .Values.server.clusterReports.historyDays | quote }}}
             {{- if .Values.operator.enabled }}
             - {name: MELES_OPERATOR_STATUS, value: {{ printf "http://%s-operator-metrics.%s.svc:8080" (include "meles.fullname" .) .Release.Namespace | quote }}}

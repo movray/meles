@@ -5,10 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -48,7 +50,7 @@ func TestKubeReports(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	k, err := NewKubeReports(cfg)
+	k, err := NewKubeReports(cfg, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,5 +80,47 @@ func TestKubeReports(t *testing.T) {
 	}
 	if err := k.RequestRescan(ctx, "shop", "missing"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("RequestRescan missing: %v", err)
+	}
+
+	// Ignore rules: one applied with kubectl, two created from the UI.
+	expires := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
+	external := &v1alpha1.ClusterMalwareIgnore{ObjectMeta: metav1.ObjectMeta{Name: "known-harmless"},
+		Spec: v1alpha1.IgnoreSpec{Rules: []v1alpha1.IgnoreRule{{Path: "/usr/src/php.tar.xz", Reason: "PHP test quine", Expires: expires}}}}
+	if err := c.Create(ctx, external); err != nil {
+		t.Fatal(err)
+	}
+	ign := k.Ignores()
+	rule := v1alpha1.IgnoreRule{Path: "/usr/bin/xmrig", Reason: "miner detector test data", Expires: expires}
+	local, err := ign.Create(ctx, "shop", rule, "ops@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := ign.Create(ctx, "", rule, "ops@example.com")
+	if err != nil || !strings.HasPrefix(cluster, uiPrefix) {
+		t.Fatalf("create cluster-wide: %q, %v", cluster, err)
+	}
+	var objs []IgnoreObject
+	for deadline := time.Now().Add(30 * time.Second); len(objs) < 3 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		objs, _ = ign.List(ctx)
+	}
+	if len(objs) != 3 || objs[0].Namespace != "" || objs[2].Namespace != "shop" || objs[2].Name != local || !objs[2].Managed() || objs[2].CreatedBy() != "ops@example.com" {
+		t.Fatalf("List = %+v", objs)
+	}
+	rules, err := ign.ClusterRules(ctx)
+	if err != nil || rules.Len() != 2 {
+		t.Errorf("ClusterRules: %d rules, %v; want the two ClusterMalwareIgnores", rules.Len(), err)
+	}
+
+	if err := ign.Delete(ctx, "", "known-harmless"); !errors.Is(err, errNotManaged) {
+		t.Errorf("delete external: %v", err)
+	}
+	if err := ign.Delete(ctx, "shop", local); err != nil {
+		t.Errorf("delete: %v", err)
+	}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "shop", Name: local}, &v1alpha1.MalwareIgnore{}); !apierrors.IsNotFound(err) {
+		t.Errorf("MalwareIgnore still there: %v", err)
+	}
+	if err := ign.Delete(ctx, "shop", local); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("delete again: %v", err)
 	}
 }

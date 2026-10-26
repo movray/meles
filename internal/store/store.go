@@ -68,10 +68,11 @@ type Run struct {
 	Engine     string     `json:"engine,omitempty"`
 	Signatures string     `json:"signatures,omitempty"`
 	Files      int        `json:"files"`
-	Findings   int        `json:"findings"`
-	Skipped    int        `json:"skipped"`
-	Progress   string     `json:"progress,omitempty"`
-	Error      string     `json:"error,omitempty"`
+	// Findings and Skipped count what is not ignored by a rule.
+	Findings int    `json:"findings"`
+	Skipped  int    `json:"skipped"`
+	Progress string `json:"progress,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // Done reports whether the run has finished.
@@ -361,11 +362,13 @@ func (s *Store) FinishRun(ctx context.Context, id int64, rep *scan.Report, runEr
 	if err != nil {
 		return fmt.Errorf("encode report of run %d: %w", id, err)
 	}
-	fs := rep.Findings()
+	// Entries an ignore rule takes out of the verdict stay in the report but
+	// are not counted, like in a MalwareReport.
+	fs := rep.ActiveFindings()
 	if _, err := tx.ExecContext(ctx, `UPDATE runs SET status = ?, finished_at = ?, digest = ?, engine = ?, signatures = ?,
 		files = ?, findings = ?, skipped = ?, progress = '', error = '', report = ? WHERE id = ?`,
 		status, now, rep.Digest, rep.Engine.Engine, rep.Engine.Signatures,
-		rep.Files(), len(fs), len(rep.Skipped()), string(js), id); err != nil {
+		rep.Files(), len(fs), len(rep.ActiveSkipped()), string(js), id); err != nil {
 		return fmt.Errorf("finish run %d: %w", id, err)
 	}
 	for _, f := range fs {

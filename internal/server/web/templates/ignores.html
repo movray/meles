@@ -1,0 +1,41 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <div>
+    <h1>Ignore rules</h1>
+    <p class="sub">ClusterMalwareIgnores apply to all reports and the server's own runs, MalwareIgnores to the reports of their namespace.</p>
+  </div>
+</div>
+<section class="card">
+  <p class="note">Create a rule with <em>Ignore…</em> at a finding or skipped file. Rules created here can be deleted here; all others belong to whoever applied them (kubectl, Helm, a GitOps tool) and are changed there.</p>
+  {{if $d.Objects}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Object</th><th>Rule</th><th>Reason</th><th>Expires</th><th>Origin</th><th></th></tr></thead>
+    <tbody>
+    {{range $o := $d.Objects}}
+    {{range $i, $r := $o.Spec.Rules}}
+    <tr{{if expired $r.Expires}} class="row-ignored"{{end}}>
+      <td class="ref">{{if $o.Namespace}}<code>{{$o.Namespace}}</code> / {{else}}<span class="tag">cluster</span> {{end}}<code>{{$o.Name}}</code>{{if gt (len $o.Spec.Rules) 1}}<div class="sub">rule {{add $i 1}} of {{len $o.Spec.Rules}}{{with $r.Name}}: {{.}}{{end}}</div>{{else}}{{with $r.Name}}<div class="sub">{{.}}</div>{{end}}{{end}}</td>
+      <td class="ref">
+        {{with $r.Path}}<div>path <code>{{.}}</code></div>{{end}}
+        {{with $r.Signature}}<div>signature <code>{{.}}</code></div>{{end}}
+        {{with $r.SHA256}}<div>sha256 <code title="{{.}}">{{short .}}</code></div>{{end}}
+        <div class="sub">image {{with $r.Image}}<code>{{.}}</code>{{else}}any{{end}}</div>
+      </td>
+      <td>{{$r.Reason}}</td>
+      <td>{{if expired $r.Expires}}<strong>expired</strong> {{$r.Expires}}<div class="sub">counts again</div>{{else}}{{$r.Expires}}{{end}}</td>
+      <td>{{if $o.Managed}}<span class="tag">UI</span><div class="sub">{{$o.CreatedBy}} · {{time $o.Created}}</div>{{else}}<span class="tag">{{$o.Origin}}</span><div class="sub">{{time $o.Created}}</div>{{end}}</td>
+      <td class="actions">{{if and $o.Managed (eq $i 0)}}<form method="post" action="/ignores/delete" data-confirm="Delete this ignore rule? Matching entries count again."><input type="hidden" name="namespace" value="{{$o.Namespace}}"><input type="hidden" name="name" value="{{$o.Name}}"><button type="submit" class="secondary small">Delete</button></form>{{end}}</td>
+    </tr>
+    {{end}}
+    {{with $o.Status.Problems}}<tr><td></td><td colspan="5">{{range .}}<p class="err">{{.}}</p>{{end}}</td></tr>{{end}}
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}
+  <p class="empty">No ignore rules.</p>
+  {{end}}
+</section>
+{{end}}

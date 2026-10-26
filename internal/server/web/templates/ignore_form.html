@@ -1,0 +1,72 @@
+{{define "content"}}
+{{$d := .Data}}{{$in := $d.Input}}{{$e := $d.Errors}}
+<div class="page-head">
+  <div>
+    <p class="crumb"><a href="/ignores">Ignore rules</a> / new</p>
+    <h1>{{.Title}}</h1>
+  </div>
+</div>
+<div class="card form-card">
+  <p class="note">An ignored entry stays in every report, marked with the rule, but no longer counts: a report with nothing else is <em>clean</em>, and the scan gate lets the image through. Only ignore what you checked is harmless. The rule applies to the operator's reports right away; the server's own runs use cluster-wide rules from their next run on.</p>
+  {{with $e.Rule}}<p class="err">{{.}}</p>{{end}}
+  <form method="post" action="/ignores">
+    <input type="hidden" name="back" value="{{$in.Back}}">
+    <input type="hidden" name="namespace" value="{{$in.Namespace}}">
+    <input type="hidden" name="sha256" value="{{$in.SHA256}}">
+    <div class="field">
+      <label for="path">Path in the image</label>
+      <input id="path" name="path" value="{{$in.Path}}" autocomplete="off" spellcheck="false"{{if $e.Path}} aria-invalid="true" aria-describedby="path-err"{{end}}>
+      {{with $e.Path}}<p class="err" id="path-err">{{.}}</p>{{end}}
+      <p class="hint">A glob: <code>*</code> within a directory, <code>**</code> across directories, e.g. <code>/usr/src/php/ext/phar/tests/**</code>. Empty: any path.</p>
+    </div>
+    <div class="field">
+      <label for="signature">Signature</label>
+      <input id="signature" name="signature" value="{{$in.Signature}}" autocomplete="off" spellcheck="false">
+      <p class="hint">A glob, e.g. <code>Heuristics.Limits.Exceeded.*</code>. Empty: any signature.</p>
+    </div>
+    <div class="field">
+      <label for="image">Image</label>
+      <input id="image" name="image" value="{{$in.Image}}" autocomplete="off" spellcheck="false">
+      <p class="hint">A repository glob such as <code>docker.io/library/nextcloud</code> or <code>ghcr.io/acme/*</code>, or an image digest <code>sha256:…</code>. Empty: every image.</p>
+    </div>
+    {{if $in.SHA256}}
+    <div class="field check">
+      <input type="checkbox" id="exact" name="exact" value="1"{{if $in.Exact}} checked{{end}}>
+      <label for="exact">Only this exact file (sha256 <code title="{{$in.SHA256}}">{{short $in.SHA256}}</code>)</label>
+    </div>
+    {{with $e.Exact}}<p class="err">{{.}}</p>{{end}}
+    <p class="hint">Recommended: a changed file at the same path is scanned and counted again.</p>
+    {{end}}
+    <fieldset class="field">
+      <legend>Applies to</legend>
+      {{if $in.Namespace}}
+      <div class="field check">
+        <input type="radio" id="scope-ns" name="scope" value="namespace"{{if eq $in.Scope "namespace"}} checked{{end}}>
+        <label for="scope-ns">Namespace <code>{{$in.Namespace}}</code> only (MalwareIgnore)</label>
+      </div>
+      {{end}}
+      <div class="field check">
+        <input type="radio" id="scope-cluster" name="scope" value="cluster"{{if eq $in.Scope "cluster"}} checked{{end}}>
+        <label for="scope-cluster">The whole cluster and the server's own runs (ClusterMalwareIgnore)</label>
+      </div>
+      {{with $e.Scope}}<p class="err">{{.}}</p>{{end}}
+    </fieldset>
+    <div class="field">
+      <label for="reason">Reason</label>
+      <textarea id="reason" name="reason" rows="3" required{{if $e.Reason}} aria-invalid="true" aria-describedby="reason-err"{{end}}>{{$in.Reason}}</textarea>
+      {{with $e.Reason}}<p class="err" id="reason-err">{{.}}</p>{{end}}
+      <p class="hint">Why the file is harmless, for whoever reviews the rule. Shown in every report it applies to.</p>
+    </div>
+    <div class="field">
+      <label for="expires">Expires</label>
+      <input id="expires" name="expires" type="date" value="{{$in.Expires}}" min="{{$d.Min}}" max="{{$d.Max}}" required{{if $e.Expires}} aria-invalid="true" aria-describedby="expires-err"{{end}}>
+      {{with $e.Expires}}<p class="err" id="expires-err">{{.}}</p>{{end}}
+      <p class="hint">The last day the rule applies, at most a year ahead: exceptions are reviewed at least once a year.</p>
+    </div>
+    <div class="form-actions">
+      <button type="submit">Create rule</button>
+      <a class="button secondary" href="{{or $in.Back "/ignores"}}">Cancel</a>
+    </div>
+  </form>
+</div>
+{{end}}
