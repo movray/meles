@@ -29,8 +29,10 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
 }
+/* Dark: follows the system unless the theme switch (data-theme on <html>)
+   says otherwise. The two blocks hold the same values. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --page: #0d0d0d;
     --surface: #1a1a19;
     --surface-2: #232321;
@@ -52,6 +54,28 @@
     --shadow: none;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232321;
+  --border: #2e2e2b;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #96948d;
+  --grid: #2a2a27;
+  --axis: #55534e;
+  --accent: #7fc0a9;
+  --accent-ink: #0d1a15;
+  --accent-soft: #1d2b26;
+  --focus: #7aa7f5;
+  --critical-ink: #f08a8a;
+  --good-soft: #17301a;
+  --warning-soft: #33290f;
+  --critical-soft: #3a1b1a;
+  --info-soft: #1c2433;
+  --shadow: none;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -79,6 +103,11 @@ nav[aria-label="Main"] { display: flex; gap: 4px; flex-wrap: wrap; }
 nav[aria-label="Main"] a { color: var(--ink-2); text-decoration: none; padding: 6px 10px; border-radius: 8px; font-weight: 500; }
 nav[aria-label="Main"] a:hover { background: var(--surface-2); color: var(--ink); }
 nav[aria-label="Main"] a[aria-current="page"] { background: var(--accent-soft); color: var(--ink); }
+.theme-toggle { min-height: 32px; padding: 4px 10px; font-size: 0.85rem; font-weight: 500; background: var(--surface); color: var(--ink-2); border-color: var(--border); }
+.theme-toggle:hover { background: var(--surface-2); filter: none; }
+.theme-toggle[hidden] { display: none; }
+.theme-toggle svg { display: none; }
+.theme-toggle[data-mode="auto"] .i-auto, .theme-toggle[data-mode="light"] .i-light, .theme-toggle[data-mode="dark"] .i-dark { display: block; }
 .engine { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--ink-2); }
 .engine .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--axis); }
 .engine.ok .dot { background: var(--good); }
@@ -269,7 +298,10 @@ button.danger { background: var(--critical); border-color: var(--critical); colo
 .card h3 { font-size: 0.92rem; font-weight: 650; margin: 18px 0 6px; }
 
 @media (max-width: 640px) {
-  .engine { margin-left: 0; width: 100%; padding-bottom: 8px; }
+  .engine { margin-left: 0; width: 100%; padding-bottom: 8px; order: 3; }
+  /* The theme switch sits next to the logo instead of on a row of its own. */
+  .theme-toggle { order: 1; margin-left: auto; }
+  .top nav { order: 2; }
   .top-inner { gap: 8px 16px; padding-top: 8px; }
   h1 { font-size: 1.3rem; }
   .card { padding: 16px; }

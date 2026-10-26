@@ -380,6 +380,22 @@ func TestClusterHistory(t *testing.T) {
 	}
 }
 
+// The theme switch is in every page; its script is loaded before the
+// stylesheet, so a chosen theme does not flash.
+func TestThemeSwitch(t *testing.T) {
+	e := newEnv(t)
+	_, out := e.do("GET", "/", "", "")
+	script, css := strings.Index(out, `src="/static/theme.js"`), strings.Index(out, `href="/static/style.css"`)
+	if script < 0 || css < script || !strings.Contains(out, `id="theme-toggle"`) {
+		t.Error("page without the theme script before the stylesheet, or without the switch")
+	}
+	for _, path := range []string{"/static/theme.js", "/static/app.js"} {
+		if resp, out := e.do("GET", path, "", ""); resp.StatusCode != http.StatusOK || !strings.Contains(out, "meles-theme") {
+			t.Errorf("GET %s: %d", path, resp.StatusCode)
+		}
+	}
+}
+
 func TestClusterReportsDisabled(t *testing.T) {
 	e := newEnv(t)
 	for _, path := range []string{"/cluster", "/api/cluster/reports"} {

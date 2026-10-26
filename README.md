@@ -225,6 +225,9 @@ malware-scan:
 make run-server          # http://127.0.0.1:8080, database in meles.db
 ```
 
+The UI follows the system's light or dark mode; the switch in the header
+overrides it for the browser (stored in its local storage).
+
 Runs and reports are stored in SQLite. The server has **no login of its own**:
 keep it internal or put an authenticating proxy in front of it.
 
