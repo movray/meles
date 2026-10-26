@@ -96,7 +96,8 @@ jobs:
           tar -xzf /tmp/src.tgz --strip-components=1
       - run: hack/yara/check-clamav.sh charts/meles/rules/*.yar
 
-  # Against the real clamd of the testcluster, through meles clamd-proxy.
+  # Against the real clamd of the testcluster (with the chart's YARA rules),
+  # through meles clamd-proxy.
   # The runner's network policy allows exactly this connection.
   selftest:
     needs: test
@@ -127,7 +128,7 @@ jobs:
         shell: bash
         run: |
           go run ./hack/testregistry -listen 127.0.0.1:5055 > /tmp/registry.log &
-          for i in $(seq 120); do grep -q eicar-opaque /tmp/registry.log && break; sleep 1; done
+          for i in $(seq 120); do grep -q yara-xmrig-config /tmp/registry.log && break; sleep 1; done
           fail=0
           check() {
             # The job shell runs with -e: catch the expected non-zero codes.
@@ -140,5 +141,7 @@ jobs:
           check eicar-present 1
           check eicar-whiteout 1
           check eicar-opaque 1
+          # The chart's default YARA rules in the testcluster's clamd.
+          check yara-xmrig-config 1
           exit $fail
-      - run: make test-integration CLAMD="$MELES_CLAMD"
+      - run: MELES_TEST_YARA=1 make test-integration CLAMD="$MELES_CLAMD"
