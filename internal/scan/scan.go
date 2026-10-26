@@ -25,6 +25,7 @@ import (
 	"git.itknecht.de/sugras/meles/internal/engine"
 	"git.itknecht.de/sugras/meles/internal/extract"
 	"git.itknecht.de/sugras/meles/internal/source"
+	"git.itknecht.de/sugras/meles/internal/yararules"
 )
 
 // EngineError is a failure of the scan engine itself (unreachable, timeout,
@@ -405,6 +406,9 @@ func buildPlatformReport(p source.PlatformImage, layers []LayerReport, results [
 				SHA256:    h.sha256,
 				Status:    StatusPresent,
 				CreatedBy: layers[i].CreatedBy,
+			}
+			if info, ok := yararules.Lookup(h.signature); ok {
+				f.Rule = &info
 			}
 			if j, how := extract.HiddenBy(h.path, i, metas); j >= 0 {
 				f.HiddenByLayer = j + 1

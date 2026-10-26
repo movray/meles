@@ -8,6 +8,7 @@ import (
 	"git.itknecht.de/sugras/meles/internal/engine"
 	"git.itknecht.de/sugras/meles/internal/extract"
 	"git.itknecht.de/sugras/meles/internal/ignore"
+	"git.itknecht.de/sugras/meles/internal/yararules"
 )
 
 // Finding statuses.
@@ -76,6 +77,10 @@ type Finding struct {
 	// HiddenHow is "whiteout", "opaque" or "overwritten".
 	HiddenHow string `json:"hiddenHow,omitempty"`
 	CreatedBy string `json:"createdBy,omitempty"`
+	// Rule describes the YARA rule behind the signature if it is one of the
+	// default rules. Its author must appear wherever the finding is shown
+	// (Detection Rule License).
+	Rule *yararules.Info `json:"rule,omitempty"`
 	// Ignored is set if an ignore rule matched: the finding does not count
 	// (unless the rule expired).
 	Ignored *ignore.Match `json:"ignored,omitempty"`

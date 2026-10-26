@@ -57,7 +57,7 @@
     <tr>
       <td>{{template "badge" .Status}}{{if .HiddenByLayer}}<div class="sub">{{.HiddenHow}} in layer {{.HiddenByLayer}}</div>{{end}}</td>
       <td class="ref"><code>{{.Path}}</code></td>
-      <td><code>{{.Signature}}</code></td>
+      <td><code>{{.Signature}}</code>{{with yararule .Signature}}<div class="sub">rule by {{.Author}} · <a href="{{.URL}}" rel="noopener noreferrer">{{.License}}</a></div>{{end}}</td>
       <td><code>{{.Platform}}</code></td>
       <td><span title="{{.DiffID}}">{{.Layer}} · <code>{{short .DiffID}}</code></span></td>
       <td class="created-by"><code title="{{.CreatedBy}}">{{.CreatedBy}}</code></td>

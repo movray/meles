@@ -18,6 +18,7 @@ import (
 	"git.itknecht.de/sugras/meles/internal/schedule"
 	"git.itknecht.de/sugras/meles/internal/source"
 	"git.itknecht.de/sugras/meles/internal/store"
+	"git.itknecht.de/sugras/meles/internal/yararules"
 )
 
 // scanInput is the editable part of a scan, from a form or JSON.
@@ -470,11 +471,12 @@ func (s *Server) handleFindingsCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="meles-findings-%dd.csv"`, days))
 	cw := csv.NewWriter(w)
-	cw.Write([]string{"run_id", "finished_at", "image_ref", "digest", "platform", "layer", "path", "signature", "status"})
+	cw.Write([]string{"run_id", "finished_at", "image_ref", "digest", "platform", "layer", "path", "signature", "status", "rule_author", "rule_license"})
 	for _, f := range rows {
+		rule, _ := yararules.Lookup(f.Signature)
 		cw.Write([]string{
 			strconv.FormatInt(f.RunID, 10), f.FinishedAt.UTC().Format(time.RFC3339), f.ImageRef, f.Digest,
-			f.Platform, strconv.Itoa(f.Layer), f.Path, f.Signature, f.Status,
+			f.Platform, strconv.Itoa(f.Layer), f.Path, f.Signature, f.Status, rule.Author, rule.License,
 		})
 	}
 	cw.Flush()

@@ -9,6 +9,7 @@ import (
 	"git.itknecht.de/sugras/meles/internal/extract"
 	"git.itknecht.de/sugras/meles/internal/ignore"
 	"git.itknecht.de/sugras/meles/internal/scan"
+	"git.itknecht.de/sugras/meles/internal/yararules"
 )
 
 // Names from the image must not forge lines or escape sequences.
@@ -97,5 +98,28 @@ func TestTableIgnored(t *testing.T) {
 	Table(&buf, rep)
 	if !rep.Infected() || !strings.Contains(buf.String(), "old-tool for /opt/tool expired on 2026-09-30") {
 		t.Errorf("expired rule: infected = %v, output:\n%s", rep.Infected(), buf.String())
+	}
+}
+
+// The Detection Rule License requires the rule author with every match.
+func TestTableRuleAuthors(t *testing.T) {
+	sig := "YARA.SIGNATURE_BASE_XMRIG_Monero_Miner.UNOFFICIAL"
+	info, ok := yararules.Lookup(sig)
+	if !ok {
+		t.Fatal("rule not in the index")
+	}
+	f := scan.Finding{Platform: "linux/amd64", Layer: 1, Path: "/usr/bin/xmrig", Signature: sig, Status: scan.StatusPresent, Rule: &info}
+	rep := &scan.Report{
+		Ref:       "example.com/app:1",
+		Complete:  true,
+		Platforms: []scan.PlatformReport{{Platform: "linux/amd64", Findings: []scan.Finding{f, f}}},
+	}
+	var buf bytes.Buffer
+	if err := Table(&buf, rep); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Count(out, "Florian Roth (Nextron Systems)") != 1 || !strings.Contains(out, "DRL-1.1") {
+		t.Errorf("rule author missing or repeated:\n%s", out)
 	}
 }

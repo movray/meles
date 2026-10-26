@@ -13,6 +13,7 @@ import (
 	"git.itknecht.de/sugras/meles/internal/report"
 	"git.itknecht.de/sugras/meles/internal/scan"
 	"git.itknecht.de/sugras/meles/internal/store"
+	"git.itknecht.de/sugras/meles/internal/yararules"
 )
 
 type pageTemplate struct {
@@ -97,6 +98,13 @@ func (s *Server) funcs() template.FuncMap {
 		"short": shortDigest,
 		"findingStatus": func(f scan.Finding) string {
 			return report.Status(f)
+		},
+		// The author of a default YARA rule must be named with its matches.
+		"yararule": func(sig string) *yararules.Info {
+			if info, ok := yararules.Lookup(sig); ok {
+				return &info
+			}
+			return nil
 		},
 		"schedule": humanSchedule,
 		"next": func(id int64) time.Time {

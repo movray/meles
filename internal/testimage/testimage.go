@@ -68,6 +68,19 @@ func Cases() []Case {
 	}
 }
 
+// YaraCases returns test images for the default YARA rules
+// (charts/meles/rules); clamd must have loaded them. The file is a harmless
+// XMRig configuration that SIGNATURE_BASE_XMRIG_Monero_Miner_Config
+// matches.
+func YaraCases() []Case {
+	config := "{\n    \"algo\": \"cryptonight\",  // cryptonight (default) or cryptonight-lite\n    \"threads\": 1\n}\n"
+	return []Case{
+		{Name: "yara-xmrig-config", Layers: []Layer{base,
+			{"COPY config.json /opt/miner/", map[string]string{"/opt/miner/config.json": config}},
+		}, Want: []string{"/opt/miner/config.json present"}},
+	}
+}
+
 // Registry is an in-memory registry with the test images.
 type Registry struct {
 	srv  *httptest.Server

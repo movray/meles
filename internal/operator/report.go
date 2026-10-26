@@ -42,10 +42,14 @@ func resultFromReport(rep *scan.Report, filter, version string) result {
 	}
 	findings, skipped := rep.Findings(), rep.Skipped()
 	for _, f := range findings[:min(len(findings), maxListed)] {
-		r.findings = append(r.findings, v1alpha1.Finding{
+		vf := v1alpha1.Finding{
 			Platform: f.Platform, Layer: f.Layer, DiffID: f.DiffID, Path: f.Path,
 			Signature: f.Signature, Status: f.Status, HiddenByLayer: f.HiddenByLayer, CreatedBy: f.CreatedBy, SHA256: f.SHA256,
-		})
+		}
+		if f.Rule != nil {
+			vf.Rule = &v1alpha1.YaraRule{Name: f.Rule.Name, Author: f.Rule.Author, License: f.Rule.License, URL: f.Rule.URL}
+		}
+		r.findings = append(r.findings, vf)
 	}
 	for _, s := range skipped[:min(len(skipped), maxListed)] {
 		r.skipped = append(r.skipped, v1alpha1.Skipped{

@@ -82,7 +82,29 @@ func Table(w io.Writer, r *scan.Report) error {
 			return err
 		}
 	}
-	return ignored(w, r)
+	if err := ignored(w, r); err != nil {
+		return err
+	}
+	return ruleAuthors(w, r)
+}
+
+// ruleAuthors names the authors of the YARA rules behind the findings, as
+// the Detection Rule License requires for messages about matches.
+func ruleAuthors(w io.Writer, r *scan.Report) error {
+	seen := map[string]bool{}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, f := range r.Findings() {
+		if f.Rule == nil || seen[f.Rule.Name] {
+			continue
+		}
+		if len(seen) == 0 {
+			fmt.Fprintln(w, "\nYARA rules:")
+			fmt.Fprintln(tw, "RULE\tAUTHOR\tLICENSE\tSOURCE")
+		}
+		seen[f.Rule.Name] = true
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", safe(f.Rule.Name), safe(f.Rule.Author), safe(f.Rule.License), safe(f.Rule.URL))
+	}
+	return tw.Flush()
 }
 
 // ignored lists the entries ignore rules took out of the verdict, and the

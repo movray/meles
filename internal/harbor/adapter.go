@@ -365,12 +365,18 @@ func (a *Adapter) toReport(art Artifact, rep *scan.Report) *VulnerabilityReport 
 		if f.Status != scan.StatusPresent {
 			desc += fmt.Sprintf(" The file was %s in layer %d but is still shipped with the image and can be restored from layer %d.", f.Status, f.HiddenByLayer, f.Layer)
 		}
+		attrs := map[string]any{"kind": "malware", "platform": f.Platform, "layer": f.Layer, "diffID": f.DiffID,
+			"status": f.Status, "sha256": f.SHA256, "createdBy": f.CreatedBy}
+		var links []string
+		if f.Rule != nil {
+			// The Detection Rule License requires the rule author with every match.
+			desc += fmt.Sprintf(" YARA rule %s by %s (%s).", f.Rule.Name, f.Rule.Author, f.Rule.License)
+			attrs["rule"] = f.Rule
+			links = []string{f.Rule.URL}
+		}
 		out.Vulnerabilities = append(out.Vulnerabilities, Vulnerability{
-			ID: f.Signature, Package: f.Path, Version: where, Severity: "Critical", Description: desc,
-			VendorAttributes: map[string]any{
-				"meles": map[string]any{"kind": "malware", "platform": f.Platform, "layer": f.Layer, "diffID": f.DiffID,
-					"status": f.Status, "sha256": f.SHA256, "createdBy": f.CreatedBy},
-			},
+			ID: f.Signature, Package: f.Path, Version: where, Severity: "Critical", Description: desc, Links: links,
+			VendorAttributes: map[string]any{"meles": attrs},
 		})
 	}
 	for _, s := range rep.ActiveSkipped() {
