@@ -15,10 +15,24 @@ import (
 )
 
 // Formats lists the supported output formats.
-var Formats = []string{"table", "json"}
+var Formats = []string{"table", "json", "sarif"}
+
+// Invocation describes the run of meles, for formats that record it.
+type Invocation struct {
+	// Version of meles.
+	Version string
+	// Failed lists the scans that ended with an error.
+	Failed []Failure
+}
+
+// Failure is a scan that ended with an error.
+type Failure struct {
+	Ref string
+	Err string
+}
 
 // Write writes reports in the given format.
-func Write(w io.Writer, format string, reps []*scan.Report) error {
+func Write(w io.Writer, format string, reps []*scan.Report, inv Invocation) error {
 	switch format {
 	case "table":
 		for _, r := range reps {
@@ -34,6 +48,8 @@ func Write(w io.Writer, format string, reps []*scan.Report) error {
 			return enc.Encode(reps[0])
 		}
 		return enc.Encode(reps)
+	case "sarif":
+		return SARIF(w, reps, inv)
 	default:
 		return fmt.Errorf("unknown format %q (supported: %s)", format, strings.Join(Formats, ", "))
 	}

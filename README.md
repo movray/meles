@@ -98,7 +98,7 @@ environment variables, which win over defaults.
 | `--clamd-ca` | system roots | CA certificate of `meles clamd-proxy` |
 | `--clamd-timeout` | `5m` | wait for clamd's verdict on a file; keep it above clamd's `MaxScanTime` |
 | `--platform` | `all` | `all`, `host` or a list like `linux/amd64,linux/arm64` |
-| `--format` | `table` | `table`, `json` |
+| `--format` | `table` | `table`, `json`, `sarif` (SARIF 2.1.0, e.g. for GitHub code scanning) |
 | `--exit-code` | `1` | exit code on findings; `2` is reserved for errors |
 | `--skipped-exit-code` | `1` | exit code when files were not scanned; `0` = report only |
 | `--max-file-size` | `768M` | larger files are skipped **and reported**; at most `2047M`, keep ≤ clamd's `StreamMaxLength` |
@@ -172,6 +172,28 @@ GitHub Actions / Gitea Actions:
 - name: Scan image for malware
   run: meles image --clamd tcp://clamd:3310 "$IMAGE"
 ```
+
+With GitHub code scanning, write SARIF and upload it even when meles fails
+the job:
+
+```yaml
+- name: Scan image for malware
+  run: meles image --clamd tcp://clamd:3310 --format sarif "$IMAGE" > meles.sarif
+- name: Upload to code scanning
+  if: always()
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: meles.sarif
+    category: meles
+```
+
+In SARIF, findings are errors and skipped files warnings (the scan is
+incomplete). Entries an ignore rule takes out of the verdict are kept as
+suppressed results with the rule's reason. The location is the path in the
+image; image, platform, layer and Dockerfile instruction are in the result's
+properties. The fingerprint leaves out the digest, so an alert stays the
+same alert in the next version of the image. A failed scan marks the run
+unsuccessful instead of producing an empty, clean-looking report.
 
 GitLab CI:
 

@@ -449,6 +449,7 @@ scan.
 | Scan unit | layer, not the final filesystem | whiteout findings, cache per digest |
 | Multi-arch | all platforms by default | an amd64 runner must not call an infected arm64 variant clean |
 | Exit codes | `1` on findings and skipped files, `2` fixed for errors | a security gate; unlike Trivy |
+| SARIF | one run for all images; skipped files as warnings, ignored entries as suppressions, failed scans as an unsuccessful invocation; fingerprint without the digest | an incomplete or failed scan must not look clean; alerts survive a new image version |
 | Web UI | server-rendered, embedded, no CDN | one binary, offline, strict CSP |
 | Database | SQLite (`modernc.org/sqlite`, pure Go) on a PVC, one replica | no CGO, no database service |
 | Schedules | cron (`robfig/cron`); a run is skipped while the previous one is active | familiar syntax |

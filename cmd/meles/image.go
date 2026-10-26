@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -27,6 +29,7 @@ func newImageCmd() *cobra.Command {
 		Short: "Scan container images from a registry",
 		Example: `  meles image alpine:3.20
   meles image --platform host --format json ghcr.io/org/app:1.2
+  meles image --format sarif ghcr.io/org/app:1.2 > meles.sarif
   MELES_CLAMD=tcp://clamd:3310 meles image registry.example.com/app@sha256:...
   meles image --ignorefile meles-ignore.yaml nextcloud:33`,
 		Args: cobra.MinimumNArgs(1),
@@ -36,6 +39,9 @@ func newImageCmd() *cobra.Command {
 			}
 			if skipped < 0 || skipped > 255 {
 				return fmt.Errorf("--skipped-exit-code %d: must be 0..255", skipped)
+			}
+			if !slices.Contains(report.Formats, format) {
+				return fmt.Errorf("--format %q: supported are %s", format, strings.Join(report.Formats, ", "))
 			}
 			pf, err := source.ParsePlatforms(platforms)
 			if err != nil {
@@ -53,24 +59,24 @@ func newImageCmd() *cobra.Command {
 			}
 
 			var reps []*scan.Report
-			failed := false
+			inv := report.Invocation{Version: version}
 			for _, ref := range refs {
 				rep, err := s.Scan(cmd.Context(), ref, pf, nil)
 				if err != nil {
 					slog.Error("scan failed", "ref", ref, "err", err)
-					failed = true
+					inv.Failed = append(inv.Failed, report.Failure{Ref: ref, Err: err.Error()})
 					continue
 				}
 				rep.ApplyIgnore(rules, time.Now())
 				reps = append(reps, rep)
 			}
-			if err := report.Write(cmd.OutOrStdout(), format, reps); err != nil {
+			if err := report.Write(cmd.OutOrStdout(), format, reps, inv); err != nil {
 				return err
 			}
 
 			// Errors win over findings: a failed scan must never pass.
 			switch {
-			case failed:
+			case len(inv.Failed) > 0:
 				return exitCodeError{exitError}
 			case anyInfected(reps) && exitCode != exitClean:
 				return exitCodeError{exitCode}
@@ -81,7 +87,7 @@ func newImageCmd() *cobra.Command {
 		},
 	}
 	sf.register(cmd.Flags())
-	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json")
+	cmd.Flags().StringVar(&format, "format", "table", "output format: table, json, sarif (e.g. for GitHub code scanning)")
 	cmd.Flags().IntVar(&exitCode, "exit-code", exitFound, "exit code when malware is found (0 = report only; 2 is reserved for errors)")
 	cmd.Flags().IntVar(&skipped, "skipped-exit-code", exitFound, "exit code when files were not scanned (e.g. above --max-file-size): 1 = treat as finding, 2 = treat as error, 0 = report only")
 	cmd.Flags().StringVar(&ignoreF, "ignorefile", "", "YAML file with ignore rules (path, signature, image, sha256; each with reason and expires): matching findings and skipped files are listed but do not count")
