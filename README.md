@@ -38,6 +38,8 @@ substitute for image signing, SBOMs or runtime detection.
   lives, security model, design decisions
 - [docs/development.md](docs/development.md): building, testing, releasing
 - [docs/architecture.md#planned-improvements](docs/architecture.md#planned-improvements): what is planned but not built yet
+- [CONTRIBUTING.md](CONTRIBUTING.md): issues and pull requests
+- [SECURITY.md](SECURITY.md): reporting a vulnerability privately
 
 ## Quick start
 
@@ -835,7 +837,9 @@ twice that during a reload.
 
 ## Development
 
-See [docs/development.md](docs/development.md).
+See [docs/development.md](docs/development.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md). Please report security problems
+privately, see [SECURITY.md](SECURITY.md).
 
 ## License
 

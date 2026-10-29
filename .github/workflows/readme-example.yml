@@ -15,14 +15,14 @@ jobs:
       MELES_CLAMD: tcp://127.0.0.1:3310
       IMAGE: docker.io/library/busybox:1.37
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
       # The README installs a released meles; this checks the checkout.
       - run: go install ./cmd/meles
       - name: Signature database from the cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: clamav-db
           key: clamav-db-${{ github.run_id }}

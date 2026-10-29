@@ -14,7 +14,7 @@ jobs:
       # Keep the Go version in line with go.mod.
       image: docker.io/library/golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The container runs as another user than the checkout.
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make lint
@@ -42,7 +42,7 @@ jobs:
       YARA_X_VERSION: v1.22.0
       YARA_X_SHA256: 7f470770b2c1a0d97f02298fc194978d999074d147d003d33dd62775761439db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: helm and promtool
         run: |
           set -eu
@@ -70,7 +70,7 @@ jobs:
       # Keep in line with clamd.image in charts/meles/values.yaml.
       CLAMAV_IMAGE: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: |
           docker run --rm -v "$PWD:/src:ro" -w /src --entrypoint sh "$CLAMAV_IMAGE" \
             -c 'hack/yara/check-clamav.sh charts/meles/rules/*.yar'
@@ -85,8 +85,8 @@ jobs:
       CLAMAV_IMAGE: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
       MELES_CLAMD: tcp://127.0.0.1:3310
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
       - name: start clamd

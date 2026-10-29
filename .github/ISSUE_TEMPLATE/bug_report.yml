@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The command or Helm values, and the image if it is public. Do not attach malware samples.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: meles version
+      description: Output of `meles version`, or the commit.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [CLI, web UI / server, operator, Harbor adapter, clamd-proxy, Helm chart, YARA rules, other]
+    validations:
+      required: true
+  - type: input
+    id: clamd
+    attributes:
+      label: clamd version
+      description: e.g. the "engine:" line of `meles selftest`.
+  - type: textarea
+    id: output
+    attributes:
+      label: Output and logs
+      render: text
