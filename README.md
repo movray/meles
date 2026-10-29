@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/meles.svg" alt="meles logo: a badger's head" width="160">
+</p>
+
 # meles
 
 **meles** is a malware scanner for container images: one command on an image
