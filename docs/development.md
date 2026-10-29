@@ -152,6 +152,12 @@ exist. Started by hand (Actions → release → Run workflow), the workflow
 builds everything and publishes nothing: a dry run before tagging. The
 release build uses the latest patch release of the Go version in `go.mod`.
 
+After the release, set `version` and `appVersion` in
+`charts/meles/Chart.yaml` to the released version in a commit
+`chore(chart): appVersion X.Y.Z` (left out of the changelog). The chart in
+a checkout of `main` then installs the latest published image; before that
+commit, it points to the previous release.
+
 `make image` builds and pushes the same image by hand to `KO_DOCKER_REPO`,
 e.g. for a test registry. Build from a clean checkout so that the version is
 not `-dirty`.

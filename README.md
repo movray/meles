@@ -71,7 +71,9 @@ gh attestation verify oci://ghcr.io/movray/charts/meles:$VERSION -R movray/meles
 ```
 
 Image and chart are also signed with cosign (keyless), so admission
-policies such as Kyverno or the Sigstore policy-controller can check them:
+policies such as Kyverno or the Sigstore policy-controller can check them.
+The signatures are Sigstore bundles stored as OCI referrers: verify with
+cosign 3 (cosign 2 needs `--new-bundle-format`):
 
 ```sh
 cosign verify ghcr.io/movray/meles:$VERSION \
