@@ -20,10 +20,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/operator"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/operator"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
 )
 
 func newOperatorCmd() *cobra.Command {

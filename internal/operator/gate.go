@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/source"
 )
 
 // resolveTimeout bounds resolving the tag of a held pod's image.

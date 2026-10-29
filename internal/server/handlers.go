@@ -13,12 +13,12 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/opstatus"
-	"git.itknecht.de/sugras/meles/internal/schedule"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/store"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/opstatus"
+	"github.com/movray/meles/internal/schedule"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/store"
+	"github.com/movray/meles/internal/yararules"
 )
 
 // scanInput is the editable part of a scan, from a form or JSON.

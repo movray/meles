@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/internal/store"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

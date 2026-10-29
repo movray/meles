@@ -14,9 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"git.itknecht.de/sugras/meles/internal/harbor"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
+	"github.com/movray/meles/internal/harbor"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
 )
 
 func newHarborAdapterCmd() *cobra.Command {

@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/store"
 )
 
 // TestKubeReports needs the envtest binaries (make test-envtest).

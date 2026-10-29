@@ -14,7 +14,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"git.itknecht.de/sugras/meles/internal/scan"
+	"github.com/movray/meles/internal/scan"
 )
 
 // ErrNotFound is returned when a scan or run does not exist.

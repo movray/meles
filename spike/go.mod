@@ -1,4 +1,4 @@
-module git.itknecht.de/sugras/meles/spike
+module github.com/movray/meles/spike
 
 go 1.25.0
 

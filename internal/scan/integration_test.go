@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"git.itknecht.de/sugras/meles/internal/engine/clamd"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/engine/clamd"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/testimage"
 )
 
 // TestRealClamdStreamsLargeFile scans an archive above bufferLimit, which is

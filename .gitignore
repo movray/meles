@@ -7,3 +7,7 @@
 # Emacs
 .#*
 \#*\#
+
+# Kept local and private (not published)
+/ROADMAP.md
+/CLAUDE.md

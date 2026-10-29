@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/extract"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/extract"
 )
 
 // Cache keeps layer results in memory, keyed by layer digest and diffID, engine and

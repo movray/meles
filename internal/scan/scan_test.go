@@ -14,10 +14,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 
-	"git.itknecht.de/sugras/meles/internal/engine/fake"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/engine/fake"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/testimage"
 )
 
 func newScanner(e *fake.Engine, c *Cache) *Scanner {

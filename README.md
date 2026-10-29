@@ -237,7 +237,7 @@ GitLab CI:
 
 ```yaml
 malware-scan:
-  image: git.itknecht.de/sugras/meles:latest
+  image: ghcr.io/movray/meles:latest
   services:
     - name: clamav/clamav:1.4
       alias: clamd

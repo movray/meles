@@ -5,7 +5,7 @@ type: application
 version: 0.3.1
 # Tag of the meles image; override with image.tag.
 appVersion: "8a8c368"
-home: https://git.itknecht.de/sugras/meles
+home: https://github.com/movray/meles
 sources:
-  - https://git.itknecht.de/sugras/meles
+  - https://github.com/movray/meles
 keywords: [malware, clamav, container, security, scanner]

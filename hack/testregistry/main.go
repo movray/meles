@@ -19,7 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/testimage"
 )
 
 func main() {

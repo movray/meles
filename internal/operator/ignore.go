@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/ignore"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/ignore"
 )
 
 // rulesFor returns the valid ignore rules for reports in namespace: those

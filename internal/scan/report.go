@@ -5,10 +5,10 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/yararules"
 )
 
 // Finding statuses.

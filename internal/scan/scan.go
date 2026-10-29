@@ -22,10 +22,10 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"golang.org/x/sync/errgroup"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/yararules"
 )
 
 // EngineError is a failure of the scan engine itself (unreachable, timeout,

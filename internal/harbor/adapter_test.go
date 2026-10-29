@@ -15,11 +15,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"git.itknecht.de/sugras/meles/internal/engine/fake"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/engine/fake"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/testimage"
 )
 
 const token = "harbor-t0ken"

@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/yararules"
 )
 
 func sarifOf(t *testing.T, reps []*scan.Report, inv Invocation) sarifLog {

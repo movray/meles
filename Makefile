@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 CLAMD   ?= unix:///run/clamav/clamd.ctl
 # Image repository for `make image` (full name, ko runs with --bare)
-KO_DOCKER_REPO ?= git.itknecht.de/sugras/meles
+KO_DOCKER_REPO ?= ghcr.io/movray/meles
 KO_VERSION     ?= v0.18.0
 CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 # Kubernetes version of the API server and etcd that envtest runs.

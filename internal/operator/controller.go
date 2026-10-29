@@ -35,10 +35,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	ctrlsource "sigs.k8s.io/controller-runtime/pkg/source"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
 )
 
 // ImageScanner scans one image reference; *scan.Scanner implements it.

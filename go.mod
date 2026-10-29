@@ -1,4 +1,4 @@
-module git.itknecht.de/sugras/meles
+module github.com/movray/meles
 
 go 1.26.0
 

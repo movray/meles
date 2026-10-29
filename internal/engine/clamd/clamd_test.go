@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
+	"github.com/movray/meles/internal/engine"
 )
 
 // fakeClamd speaks enough of the clamd protocol for the client: VERSION,

@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"github.com/movray/meles/api/v1alpha1"
 )
 
 func podRequest(name string) reconcile.Request {

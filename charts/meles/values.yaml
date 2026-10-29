@@ -4,7 +4,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: git.itknecht.de/sugras/meles
+  repository: ghcr.io/movray/meles
   # Defaults to the chart's appVersion.
   tag: ""
   pullPolicy: IfNotPresent

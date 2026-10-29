@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/store"
 )
 
 // ClusterReports gives the server the MalwareReports the operator writes.

@@ -12,9 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
 )
 
 // maxQueued bounds the scans waiting for a worker.

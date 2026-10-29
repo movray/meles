@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/engine/clamd"
+	"github.com/movray/meles/internal/engine/clamd"
 )
 
 // fakeClamd records the commands it receives and answers VERSION and

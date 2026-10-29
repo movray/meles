@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
+	"github.com/movray/meles/internal/engine"
 )
 
 // chunkSize is the INSTREAM chunk size. clamd accepts any size up to its

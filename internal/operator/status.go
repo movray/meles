@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/opstatus"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/opstatus"
 )
 
 // maxRecent is the number of finished scans kept for the status.

@@ -20,9 +20,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
 )
 
 // ImageScanner scans one image; *scan.Scanner implements it.

@@ -10,8 +10,8 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"git.itknecht.de/sugras/meles/internal/runner"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/internal/runner"
+	"github.com/movray/meles/internal/store"
 )
 
 // parser accepts standard five-field expressions ("0 3 * * *"), descriptors

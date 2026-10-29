@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/scan"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/scan"
 )
 
 func openTest(t *testing.T) *Store {

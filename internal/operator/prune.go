@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"github.com/movray/meles/api/v1alpha1"
 )
 
 // prunable are the workload kinds whose reports are deleted once they have

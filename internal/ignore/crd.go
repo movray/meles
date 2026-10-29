@@ -3,7 +3,7 @@ package ignore
 import (
 	"fmt"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"github.com/movray/meles/api/v1alpha1"
 )
 
 // FromSpec converts the rules of a MalwareIgnore or ClusterMalwareIgnore.

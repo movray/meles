@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/opstatus"
-	"git.itknecht.de/sugras/meles/internal/runner"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/schedule"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/opstatus"
+	"github.com/movray/meles/internal/runner"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/schedule"
+	"github.com/movray/meles/internal/store"
 )
 
 //go:embed web

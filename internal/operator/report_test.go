@@ -7,8 +7,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/ignore"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/ignore"
 )
 
 func TestWithIgnore(t *testing.T) {

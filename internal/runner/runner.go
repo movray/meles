@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/store"
 )
 
 // ErrQueueFull is returned when too many runs are waiting.

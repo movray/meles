@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/testimage"
 )
 
 func newSelftestCmd() *cobra.Command {

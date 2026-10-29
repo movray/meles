@@ -26,12 +26,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/engine/fake"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/engine/fake"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
+	"github.com/movray/meles/internal/testimage"
 )
 
 // env is a real API server and etcd (envtest), the test registry with the

@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"git.itknecht.de/sugras/meles/internal/engine/clamd"
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/internal/engine/clamd"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
 )
 
 // scanFlags are shared by all commands that scan.

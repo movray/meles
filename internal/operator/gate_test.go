@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"github.com/movray/meles/api/v1alpha1"
 )
 
 // gatedPod creates a pod as the webhook leaves it: held by the scan gate,

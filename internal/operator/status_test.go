@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
+	"github.com/movray/meles/api/v1alpha1"
 )
 
 func TestStatus(t *testing.T) {

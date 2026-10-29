@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/extract"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/internal/extract"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/yararules"
 )
 
 // Names from the image must not forge lines or escape sequences.

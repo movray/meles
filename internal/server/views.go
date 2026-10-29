@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/report"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/store"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/report"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/store"
+	"github.com/movray/meles/internal/yararules"
 )
 
 type pageTemplate struct {

@@ -11,13 +11,13 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/yararules"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/yararules"
 )
 
 // InformationURI is the project page named in SARIF output.
-const InformationURI = "https://git.itknecht.de/sugras/meles"
+const InformationURI = "https://github.com/movray/meles"
 
 // security-severity values, read by GitHub code scanning: 9.0 and above is
 // critical, 4.0 to 6.9 medium.

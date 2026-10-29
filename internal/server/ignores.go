@@ -12,9 +12,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/store"
 )
 
 // ClusterIgnores manages MalwareIgnores and ClusterMalwareIgnores from the

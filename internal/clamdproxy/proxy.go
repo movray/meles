@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/engine/clamd"
+	"github.com/movray/meles/internal/engine/clamd"
 )
 
 const (

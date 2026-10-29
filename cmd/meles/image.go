@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/report"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/source"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/report"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/source"
 )
 
 func newImageCmd() *cobra.Command {

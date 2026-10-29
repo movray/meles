@@ -14,13 +14,13 @@ import (
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/opstatus"
-	"git.itknecht.de/sugras/meles/internal/runner"
-	"git.itknecht.de/sugras/meles/internal/scan"
-	"git.itknecht.de/sugras/meles/internal/schedule"
-	"git.itknecht.de/sugras/meles/internal/server"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/opstatus"
+	"github.com/movray/meles/internal/runner"
+	"github.com/movray/meles/internal/scan"
+	"github.com/movray/meles/internal/schedule"
+	"github.com/movray/meles/internal/server"
+	"github.com/movray/meles/internal/store"
 )
 
 func newServerCmd() *cobra.Command {

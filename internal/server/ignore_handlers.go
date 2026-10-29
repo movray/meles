@@ -10,9 +10,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"git.itknecht.de/sugras/meles/api/v1alpha1"
-	"git.itknecht.de/sugras/meles/internal/ignore"
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/api/v1alpha1"
+	"github.com/movray/meles/internal/ignore"
+	"github.com/movray/meles/internal/store"
 )
 
 var errNoIgnores = fmt.Errorf("ignore rules from the UI are not enabled (meles server --cluster-ignore): %w", store.ErrNotFound)

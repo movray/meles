@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"git.itknecht.de/sugras/meles/internal/clamdproxy"
+	"github.com/movray/meles/internal/clamdproxy"
 )
 
 func newClamdProxyCmd() *cobra.Command {

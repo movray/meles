@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"git.itknecht.de/sugras/meles/internal/store"
+	"github.com/movray/meles/internal/store"
 )
 
 // stackSeg is one segment of a stacked column: a CSS class for its color

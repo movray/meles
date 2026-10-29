@@ -19,7 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/klauspost/compress/zstd"
 
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/testimage"
 )
 
 func platformImage(t *testing.T, arch, content string) v1.Image {

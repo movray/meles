@@ -10,8 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"git.itknecht.de/sugras/meles/internal/engine"
-	"git.itknecht.de/sugras/meles/internal/testimage"
+	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/testimage"
 )
 
 // Engine detects EICAR. Scans counts the streams scanned.
