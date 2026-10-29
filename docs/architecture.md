@@ -474,6 +474,7 @@ scan.
 | YARA rules version | hash of the loaded rules in the clamd-proxy's `VERSION` reply | rescans and caches follow without a new mechanism |
 | PUA signatures | off by default | false positives on Alpine packages and minified JavaScript |
 | Scan unit | layer, not the final filesystem | whiteout findings, cache per digest |
+| Layer cache | server, operator and Harbor adapter only, not the CLI | the key includes the signature version, which changes several times a day: a CLI cache would rarely hit between CI runs and needs a kept cache directory |
 | Multi-arch | all platforms by default | an amd64 runner must not call an infected arm64 variant clean |
 | Exit codes | `1` on findings and skipped files, `2` fixed for errors | a security gate: a finding fails the pipeline without extra flags, and errors are distinguishable |
 | SARIF | one run for all images; skipped files as warnings, ignored entries as suppressions, failed scans as an unsuccessful invocation; fingerprint without the digest | an incomplete or failed scan must not look clean; alerts survive a new image version |
