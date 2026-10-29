@@ -41,17 +41,54 @@ substitute for image signing, SBOMs or runtime detection.
 - [CONTRIBUTING.md](CONTRIBUTING.md): issues and pull requests
 - [SECURITY.md](SECURITY.md): reporting a vulnerability privately
 
+## Install
+
+Each [release](https://github.com/movray/meles/releases) comes with
+binaries for Linux and macOS (amd64, arm64), a multi-arch image and the Helm
+chart:
+
+```sh
+VERSION=0.1.0
+# Binary
+curl -fsSLO https://github.com/movray/meles/releases/download/v$VERSION/meles_${VERSION}_linux_amd64.tar.gz
+tar -xzf meles_${VERSION}_linux_amd64.tar.gz meles
+# Image (linux/amd64, linux/arm64; no shell, runs as non-root)
+docker run --rm ghcr.io/movray/meles:$VERSION version
+# Helm chart (see Kubernetes below)
+helm install meles oci://ghcr.io/movray/charts/meles --version $VERSION -n meles -f my-values.yaml
+# From source
+go install github.com/movray/meles/cmd/meles@v$VERSION
+```
+
+Binaries, image and chart are built by the
+[release workflow](.github/workflows/release.yml) and carry signed build
+provenance. Check it with the GitHub CLI:
+
+```sh
+gh attestation verify meles_${VERSION}_linux_amd64.tar.gz -R movray/meles
+gh attestation verify oci://ghcr.io/movray/meles:$VERSION -R movray/meles
+gh attestation verify oci://ghcr.io/movray/charts/meles:$VERSION -R movray/meles
+```
+
+Image and chart are also signed with cosign (keyless), so admission
+policies such as Kyverno or the Sigstore policy-controller can check them:
+
+```sh
+cosign verify ghcr.io/movray/meles:$VERSION \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/movray/meles/\.github/workflows/release\.yml@refs/tags/v'
+```
+
 ## Quick start
 
 You need a running clamd (e.g. `apt install clamav-daemon`, or the
 `clamav/clamav` image).
 
 ```sh
-make build
-bin/meles selftest                     # checks the whole chain with EICAR test images
-                                       # (--yara: also the default YARA rules, if loaded)
-bin/meles image alpine:3.20
-bin/meles image --format json --platform linux/amd64 ghcr.io/org/app:1.2
+meles selftest                     # checks the whole chain with EICAR test images
+                                   # (--yara: also the default YARA rules, if loaded)
+meles image alpine:3.20
+meles image --format json --platform linux/amd64 ghcr.io/org/app:1.2
 ```
 
 ```
@@ -201,9 +238,9 @@ while they are read, as for a registry.
 ### CI
 
 meles needs a clamd to talk to. In CI there are two ways to get one: start
-it in the job, or use the clamd of a cluster that runs the Helm chart. Until
-the first release, install meles with `go install`; release binaries and the
-image `ghcr.io/movray/meles` come with it.
+it in the job, or use the clamd of a cluster that runs the Helm chart. meles itself comes
+as a release binary, with `go install` or as the image `ghcr.io/movray/meles`
+(see [Install](#install)).
 
 **A clamd in the job (GitHub Actions).** The official ClamAV image downloads
 the signature database from Cisco Talos. Keep it in the Actions cache, so
@@ -377,7 +414,7 @@ to an existing clamd.
 ```sh
 kubectl create namespace meles
 kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
-helm install meles charts/meles -n meles -f my-values.yaml
+helm install meles oci://ghcr.io/movray/charts/meles --version 0.1.0 -n meles -f my-values.yaml
 kubectl -n meles create job --from=cronjob/meles-selftest selftest-1
 kubectl -n meles port-forward svc/meles-server 8080:80
 ```

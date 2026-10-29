@@ -132,12 +132,29 @@ CI runs all three (the ClamAV check in the deployed `clamav/clamav` image).
 
 ## Images and releases
 
-`make image` builds `meles` for linux/amd64 and linux/arm64 with ko on
-`cgr.dev/chainguard/static` (non-root) and pushes it to `KO_DOCKER_REPO`
-with the tags `$(VERSION)` and `latest`. Build from a clean checkout of the
-commit (e.g. a `git worktree`), so that the version is not `-dirty`, and
-then set `appVersion` in `charts/meles/Chart.yaml` in a follow-up commit.
+Releases are built by `.github/workflows/release.yml` on GitHub Actions.
+Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
+`latest`) runs, in this order:
 
-Planned for releases: GoReleaser (linux/darwin, amd64/arm64), multi-arch
-images on ghcr.io, keyless cosign signatures, SBOM and SLSA provenance, and
-a scan of the own image with Trivy and meles.
+1. ko builds the image for linux/amd64 and linux/arm64 on
+   `cgr.dev/chainguard/static` (non-root, with an SPDX SBOM attached) and
+   pushes `ghcr.io/movray/meles:X.Y.Z`;
+2. helm packages the chart with version and `appVersion` `X.Y.Z` and pushes
+   it to `oci://ghcr.io/movray/charts/meles`;
+3. image and chart are signed with cosign (keyless) and get build
+   provenance from `actions/attest-build-provenance`;
+4. GoReleaser (`.goreleaser.yaml`) builds the binaries (linux/darwin,
+   amd64/arm64) and creates the GitHub release with the changelog from the
+   Conventional Commits; the binaries get build provenance as well.
+
+Image and chart come first, so a release never names an image that does not
+exist. Started by hand (Actions → release → Run workflow), the workflow
+builds everything and publishes nothing: a dry run before tagging. The
+release build uses the latest patch release of the Go version in `go.mod`.
+
+`make image` builds and pushes the same image by hand to `KO_DOCKER_REPO`,
+e.g. for a test registry. Build from a clean checkout so that the version is
+not `-dirty`.
+
+Still planned: a scan of the own image with Trivy and meles before it is
+published.
