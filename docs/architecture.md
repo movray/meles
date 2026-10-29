@@ -468,14 +468,14 @@ scan.
 | Topic | Decision | Reason |
 |---|---|---|
 | Language | Go | go-containerregistry, controller-runtime, one binary |
-| CLI | cobra; every flag also as `MELES_<FLAG>` | like `TRIVY_*` |
+| CLI | cobra; every flag also as `MELES_<FLAG>` | a common convention for CI tools: change the default per CI environment |
 | ClamAV | clamd over INSTREAM, no `clamscan` fallback, no libclamav | license, database in memory once |
 | YARA | ClamAV's YARA support; rules in the common subset of ClamAV and YARA-X; curated, licensed set distributed through the mirror | no CGO, engine switch possible later, one distribution path |
 | YARA rules version | hash of the loaded rules in the clamd-proxy's `VERSION` reply | rescans and caches follow without a new mechanism |
 | PUA signatures | off by default | false positives on Alpine packages and minified JavaScript |
 | Scan unit | layer, not the final filesystem | whiteout findings, cache per digest |
 | Multi-arch | all platforms by default | an amd64 runner must not call an infected arm64 variant clean |
-| Exit codes | `1` on findings and skipped files, `2` fixed for errors | a security gate; unlike Trivy |
+| Exit codes | `1` on findings and skipped files, `2` fixed for errors | a security gate: a finding fails the pipeline without extra flags, and errors are distinguishable |
 | SARIF | one run for all images; skipped files as warnings, ignored entries as suppressions, failed scans as an unsuccessful invocation; fingerprint without the digest | an incomplete or failed scan must not look clean; alerts survive a new image version |
 | Web UI | server-rendered, embedded, no CDN | one binary, offline, strict CSP |
 | Database | SQLite (`modernc.org/sqlite`, pure Go) on a PVC, one replica | no CGO, no database service |
@@ -506,7 +506,7 @@ Not built yet, but intended; the order and details are in
 ## Non-goals
 
 - No replacement for supply-chain protection (signatures, SBOMs) or runtime
-  detection (Falco, Tetragon).
+  detection.
 - No antivirus engine of its own.
 - meles never deletes or changes files or image contents. By default it only
   reports; with the scan gate on, it holds new pods until their image is

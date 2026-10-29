@@ -1,16 +1,17 @@
 # meles
 
-**meles** is a malware scanner for container images. It works like Trivy, but
-looks for malware instead of CVEs: one command on an image reference, no
-Docker daemon, CI-friendly exit codes. A web UI runs scheduled scans and keeps
-reports.
+**meles** is a malware scanner for container images: one command on an image
+reference, no Docker daemon, CI-friendly exit codes. It is meant to run next
+to a vulnerability scanner, not to replace one. A web UI runs scheduled scans
+and keeps reports.
 
 The name comes from *Meles meles*, the European badger – it digs through the
 layers.
 
 ## Why
 
-- Trivy, Grype & co. find vulnerabilities, misconfigurations and secrets – not malware.
+- Image scanners usually cover vulnerabilities, misconfigurations and secrets;
+  meles adds malware detection.
 - meles scans **every layer separately**, not just the final filesystem. A file
   that a later layer deletes (whiteout) is still shipped with the image and is
   still found, with the layer that added it and the one that deleted it.
@@ -66,7 +67,8 @@ No malware found.
 | `1` | malware found, or files were not scanned (change with `--exit-code` and `--skipped-exit-code`) |
 | `2` | error: pull, engine or configuration. **Never** reported as clean. |
 
-Unlike Trivy, meles fails the pipeline on findings by default.
+meles fails the pipeline on findings by default, so it works as a gate
+without extra flags.
 
 Files that were not scanned (above `--max-file-size`, or above one of clamd's
 limits) are listed as skipped, and the report is marked incomplete: the table
