@@ -123,7 +123,7 @@ jobs:
           CA: ${{ secrets.MELES_CLAMD_CA }}
         run: printf '%s\n' "$CA" > "$MELES_CLAMD_CA"
       - run: go build -o /tmp/meles ./cmd/meles
-      - run: /tmp/meles selftest
+      - run: /tmp/meles selftest --yara
       - name: exit codes (infected images fail the pipeline, a clean one passes)
         shell: bash
         run: |

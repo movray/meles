@@ -44,6 +44,7 @@ You need a running clamd (e.g. `apt install clamav-daemon`, or the
 ```sh
 make build
 bin/meles selftest                     # checks the whole chain with EICAR test images
+                                       # (--yara: also the default YARA rules, if loaded)
 bin/meles image alpine:3.20
 bin/meles image --format json --platform linux/amd64 ghcr.io/org/app:1.2
 ```
@@ -290,7 +291,8 @@ The Helm chart in `charts/meles` installs these roles:
 | `<release>-server` | web UI, scheduler, run history (SQLite on a PVC). |
 | `<release>-operator` | scans the image of every pod in the cluster, writes MalwareReports (off by default, see below). |
 
-Plus a suspended CronJob `<release>-selftest` to check the chain on demand.
+Plus a suspended CronJob `<release>-selftest` to check the chain on demand
+(with `yara.defaultRules` it also checks that clamd has loaded the YARA rules).
 Each role can be turned off; with `clamd.enabled=false` set `clamd.address`
 to an existing clamd.
 

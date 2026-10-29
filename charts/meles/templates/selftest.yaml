@@ -37,6 +37,9 @@ spec:
               env:
                 {{- include "meles.clamdClientEnv" . | nindent 16 }}
                 - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
+                {{- if and .Values.mirror.enabled .Values.yara.defaultRules }}
+                - {name: MELES_YARA, value: "true"}
+                {{- end }}
               resources:
                 {{- toYaml .Values.selftest.resources | nindent 16 }}
               securityContext:

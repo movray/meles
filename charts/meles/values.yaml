@@ -259,7 +259,8 @@ yara:
   extra: []
 
 # Checks the whole chain: EICAR test images from an in-memory registry,
-# scanned by clamd. Run it manually with
+# scanned by clamd; with yara.defaultRules also a YARA test file. Run it
+# manually with
 #   kubectl create job --from=cronjob/<release>-selftest selftest-$(date +%s)
 selftest:
   enabled: true
