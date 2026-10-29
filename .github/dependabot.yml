@@ -15,6 +15,11 @@ updates:
         exclude-patterns: ["k8s.io/*", "sigs.k8s.io/*"]
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # A nested module with its own tags (pkg/authn/kubernetes/vX);
+      # Dependabot looks for the root module's tags and fails. Update it by
+      # hand together with go-containerregistry.
+      - dependency-name: github.com/google/go-containerregistry/pkg/authn/kubernetes
 
   - package-ecosystem: github-actions
     directory: /
