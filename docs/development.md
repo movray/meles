@@ -36,7 +36,13 @@ make image-tarball      # build the image into dist/meles.tar, no push
 - **Integration tests** carry the build tag `integration` and run against
   the clamd in `MELES_TEST_CLAMD` (`make test-integration` sets it from
   `CLAMD`). There is no testcontainers, because the development machine has
-  no Docker.
+  no Docker. `MELES_TEST_YARA=1` also checks the chart's YARA rules, which
+  the clamd must have loaded.
+- **A minimal clamd**: `hack/ci/mini-clamd.sh <dir> [port]` writes a
+  database with only an EICAR hash signature and the chart's YARA rules, and
+  a `clamd.conf` for TCP. It starts in seconds and is enough for the
+  selftest and the integration tests; CI runs it in the chart's ClamAV
+  image (`clamd --config-file=<dir>/clamd.conf`).
 - **envtest**: `internal/operator` and `internal/server` start a real API
   server and etcd (`KUBEBUILDER_ASSETS`, set by `make test-envtest`;
   Kubernetes version in `ENVTEST_K8S`). Without it these tests are skipped by
@@ -45,7 +51,7 @@ make image-tarball      # build the image into dist/meles.tar, no push
   runs `promtool check rules` and the unit tests in
   `hack/rules/rules_test.yaml`. CI runs it in its own job with helm and
   promtool from their releases, pinned by version and sha256 in
-  `.gitea/workflows/ci.yml`; update both there together.
+  `.github/workflows/ci.yml`; update both there together.
 
 ### EICAR
 

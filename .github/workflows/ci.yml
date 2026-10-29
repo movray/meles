@@ -4,9 +4,9 @@ on:
     branches: [main]
   pull_request:
 
-# No third-party actions: the instance requires sign-in to view (and clone)
-# anything, and act_runner clones actions anonymously. The jobs run in the
-# Go image and fetch the code with the job token instead.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,15 +14,9 @@ jobs:
       # Keep the Go version in line with go.mod.
       image: docker.io/library/golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
     steps:
-      - name: checkout
-        env:
-          TOKEN: ${{ gitea.token }}
-          REPO: ${{ gitea.server_url }}/${{ gitea.repository }}.git
-          SHA: ${{ gitea.sha }}
-        run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token $TOKEN" fetch -q --depth=1 "$REPO" "$SHA"
-          git checkout -q FETCH_HEAD
+      - uses: actions/checkout@v4
+      # The container runs as another user than the checkout.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make lint
       # The rule index embedded in meles must match charts/meles/rules.
       - name: YARA rule index
@@ -48,15 +42,7 @@ jobs:
       YARA_X_VERSION: v1.22.0
       YARA_X_SHA256: 7f470770b2c1a0d97f02298fc194978d999074d147d003d33dd62775761439db
     steps:
-      - name: checkout
-        env:
-          TOKEN: ${{ gitea.token }}
-          REPO: ${{ gitea.server_url }}/${{ gitea.repository }}.git
-          SHA: ${{ gitea.sha }}
-        run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token $TOKEN" fetch -q --depth=1 "$REPO" "$SHA"
-          git checkout -q FETCH_HEAD
+      - uses: actions/checkout@v4
       - name: helm and promtool
         run: |
           set -eu
@@ -77,55 +63,49 @@ jobs:
       - run: hack/yara/check-yarax.sh /tmp/tools/yr charts/meles/rules/*.yar
 
   # The YARA rules in the ClamAV image the chart deploys: every rule must
-  # load. The image has neither git nor bash, so the code comes as an archive.
+  # load.
   yara:
     runs-on: ubuntu-latest
-    container:
+    env:
       # Keep in line with clamd.image in charts/meles/values.yaml.
-      image: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
-    defaults:
-      run:
-        shell: sh
+      CLAMAV_IMAGE: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
     steps:
-      - name: checkout
-        env:
-          TOKEN: ${{ gitea.token }}
-          ARCHIVE: ${{ gitea.server_url }}/api/v1/repos/${{ gitea.repository }}/archive/${{ gitea.sha }}.tar.gz
-        run: |
-          wget -q --header "Authorization: token $TOKEN" -O /tmp/src.tgz "$ARCHIVE"
-          tar -xzf /tmp/src.tgz --strip-components=1
-      - run: hack/yara/check-clamav.sh charts/meles/rules/*.yar
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src --entrypoint sh "$CLAMAV_IMAGE" \
+            -c 'hack/yara/check-clamav.sh charts/meles/rules/*.yar'
 
-  # Against the real clamd of the testcluster (with the chart's YARA rules),
-  # through meles clamd-proxy.
-  # The runner's network policy allows exactly this connection.
+  # The whole chain against a real clamd from the chart's ClamAV image. Its
+  # database holds only an EICAR hash signature and the chart's YARA rules
+  # (hack/ci/mini-clamd.sh): no download from Cisco Talos on every run.
   selftest:
     needs: test
     runs-on: ubuntu-latest
-    container:
-      image: docker.io/library/golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
     env:
-      MELES_CLAMD: tls://meles-clamd.meles.svc.cluster.local:3310
-      MELES_CLAMD_TOKEN: ${{ secrets.MELES_CLAMD_TOKEN }}
-      MELES_CLAMD_CA: /tmp/clamd-ca.crt
+      CLAMAV_IMAGE: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+      MELES_CLAMD: tcp://127.0.0.1:3310
     steps:
-      - name: checkout
-        env:
-          TOKEN: ${{ gitea.token }}
-          REPO: ${{ gitea.server_url }}/${{ gitea.repository }}.git
-          SHA: ${{ gitea.sha }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: start clamd
         run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token $TOKEN" fetch -q --depth=1 "$REPO" "$SHA"
-          git checkout -q FETCH_HEAD
-      - name: clamd CA
-        env:
-          CA: ${{ secrets.MELES_CLAMD_CA }}
-        run: printf '%s\n' "$CA" > "$MELES_CLAMD_CA"
+          hack/ci/mini-clamd.sh /tmp/clamd 3310
+          sed -i 's#/tmp/clamd#/clamd#' /tmp/clamd/clamd.conf
+          docker run -d --name clamd -p 127.0.0.1:3310:3310 -v /tmp/clamd:/clamd:ro \
+            --entrypoint clamd "$CLAMAV_IMAGE" --config-file=/clamd/clamd.conf
+          for i in $(seq 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 | grep -q PONG) 2>/dev/null; then
+              echo "clamd ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          docker logs clamd
+          exit 1
       - run: go build -o /tmp/meles ./cmd/meles
       - run: /tmp/meles selftest --yara
       - name: exit codes (infected images fail the pipeline, a clean one passes)
-        shell: bash
         run: |
           go run ./hack/testregistry -listen 127.0.0.1:5055 > /tmp/registry.log &
           for i in $(seq 120); do grep -q yara-xmrig-config /tmp/registry.log && break; sleep 1; done
@@ -141,7 +121,6 @@ jobs:
           check eicar-present 1
           check eicar-whiteout 1
           check eicar-opaque 1
-          # The chart's default YARA rules in the testcluster's clamd.
           check yara-xmrig-config 1
           # Local inputs (--input): an OCI layout and an old-style docker
           # save tar of the whiteout case, written by crane.
@@ -156,3 +135,5 @@ jobs:
           done
           exit $fail
       - run: MELES_TEST_YARA=1 make test-integration CLAMD="$MELES_CLAMD"
+      - if: failure()
+        run: docker logs clamd
