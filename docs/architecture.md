@@ -87,8 +87,8 @@ report incomplete. It is never reported as clean: the CLI exits with `1` by
 default, the operator writes `Incomplete`, Harbor gets a `Critical` entry.
 Errors are never clean either, whatever `--exit-code` says.
 
-Skipped files have signatures like findings (`Meles.Limits.MaxFileSize`,
-`Meles.Limits.StreamMaxLength`, `Meles.Unsupported.TarEntry`, clamd's
+Skipped files have signatures like findings (`meles.Limits.MaxFileSize`,
+`meles.Limits.StreamMaxLength`, `meles.Unsupported.TarEntry`, clamd's
 `Heuristics.Limits.Exceeded.*`), so ignore rules treat both alike.
 
 ### Limits in clamd

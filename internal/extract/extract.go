@@ -48,9 +48,9 @@ type File struct {
 // Signatures of skipped files, in the style of the engine's
 // Heuristics.Limits.Exceeded.* results, so that ignore rules can name them.
 const (
-	SigMaxFileSize  = "Meles.Limits.MaxFileSize"
-	SigUnsupported  = "Meles.Unsupported.TarEntry"
-	SigEngineTooBig = "Meles.Limits.StreamMaxLength"
+	SigMaxFileSize  = "meles.Limits.MaxFileSize"
+	SigUnsupported  = "meles.Unsupported.TarEntry"
+	SigEngineTooBig = "meles.Limits.StreamMaxLength"
 )
 
 // Skipped is a file that was not scanned.

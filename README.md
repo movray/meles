@@ -163,8 +163,8 @@ A rule matches when all of its set fields match; it needs at least one of
 glob or an image digest `sha256:…`, `sha256` names exactly one file content
 (the JSON output has the hash of every finding and skipped file). Skipped
 files have signatures too: clamd's `Heuristics.Limits.Exceeded.*`, or
-`Meles.Limits.MaxFileSize`, `Meles.Limits.StreamMaxLength` and
-`Meles.Unsupported.TarEntry`.
+`meles.Limits.MaxFileSize`, `meles.Limits.StreamMaxLength` and
+`meles.Unsupported.TarEntry`.
 
 Ignored entries stay in the report, marked with the rule and its reason;
 they only no longer count for the verdict and the exit code. Once a rule has
