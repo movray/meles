@@ -95,10 +95,16 @@ jobs:
           case "$VERSION" in *-*) ;; *) tags="$tags,latest" ;; esac
           push=false
           [ "$PUBLISH" = true ] && push=true
-          KO_DOCKER_REPO="$IMAGE" ko build --bare --push="$push" \
-            --platform=linux/amd64,linux/arm64 --tags="$tags" \
-            --image-refs="$OUT/image-ref" ./cmd/meles
-          ref="$(cat "$OUT/image-ref")"
+          # ko prints the reference of the image index on stdout. The file
+          # from --image-refs also lists the per-platform manifests, and
+          # signing one of those leaves the index unsigned.
+          ref="$(KO_DOCKER_REPO="$IMAGE" ko build --bare --push="$push" \
+            --platform=linux/amd64,linux/arm64 --tags="$tags" ./cmd/meles)"
+          echo "image: $ref"
+          case "$ref" in
+            *@sha256:*) ;;
+            *) echo "no digest in the ko output: $ref" >&2; exit 1 ;;
+          esac
           echo "IMAGE_DIGEST=${ref##*@}" >> "$GITHUB_ENV"
 
       - name: Sign image
