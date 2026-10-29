@@ -38,7 +38,6 @@ substitute for image signing, SBOMs or runtime detection.
   lives, security model, design decisions
 - [docs/development.md](docs/development.md): building, testing, releasing
 - [docs/architecture.md#planned-improvements](docs/architecture.md#planned-improvements): what is planned but not built yet
-- [ROADMAP.md](ROADMAP.md): plans and progress (German)
 
 ## Quick start
 
@@ -199,34 +198,96 @@ while they are read, as for a registry.
 
 ### CI
 
-GitHub Actions / Gitea Actions:
+meles needs a clamd to talk to. In CI there are two ways to get one: start
+it in the job, or use the clamd of a cluster that runs the Helm chart. Until
+the first release, install meles with `go install`; release binaries and the
+image `ghcr.io/movray/meles` come with it.
+
+**A clamd in the job (GitHub Actions).** The official ClamAV image downloads
+the signature database from Cisco Talos. Keep it in the Actions cache, so
+that each run fetches only the small daily update and stays within their
+rate limits. clamd needs about 1.5 GB of memory and a minute to load the
+database.
 
 ```yaml
-- name: Scan image for malware
-  run: meles image --clamd tcp://clamd:3310 "$IMAGE"
+jobs:
+  malware-scan:
+    runs-on: ubuntu-latest
+    env:
+      MELES_CLAMD: tcp://127.0.0.1:3310
+      IMAGE: ghcr.io/org/app:${{ github.sha }}
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go install github.com/movray/meles/cmd/meles@main
+      - name: Signature database from the cache
+        uses: actions/cache@v4
+        with:
+          path: clamav-db
+          key: clamav-db-${{ github.run_id }}
+          restore-keys: clamav-db-
+      - name: Start clamd
+        run: |
+          mkdir -p clamav-db && chmod 0777 clamav-db
+          docker run --rm -v "$PWD/clamav-db:/var/lib/clamav" --entrypoint freshclam \
+            clamav/clamav:1.4 --foreground --stdout
+          docker run -d --name clamd -p 127.0.0.1:3310:3310 -e CLAMAV_NO_FRESHCLAMD=true \
+            -v "$PWD/clamav-db:/var/lib/clamav" clamav/clamav:1.4
+          for i in $(seq 120); do
+            (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 | grep -q PONG) 2>/dev/null && exit 0
+            sleep 2
+          done
+          docker logs clamd; exit 1
+      # Optional: check meles and clamd with EICAR test images first, so that
+      # a broken setup is not mistaken for a finding.
+      - run: meles selftest
+      - run: meles image "$IMAGE"
 ```
 
-Scan before pushing:
+The official image has no YARA rules; `meles selftest --yara` and the
+curated rules need the clamd of the Helm chart (or the rules from
+`charts/meles/rules` in the database directory).
+
+**The clamd of a cluster.** CI runners in the cluster (for example
+self-hosted runners) can use the chart's clamd through its clamd-proxy:
+allow their namespace with `networkPolicy.clamdExtraFrom` and store the
+token and the CA (see [clamd authentication](#clamd-authentication)) as CI
+secrets. No signature download, and the chart's YARA rules are included.
 
 ```yaml
-- run: docker build -t app:${{ github.sha }} . && docker save app:${{ github.sha }} -o app.tar
-- name: Scan image for malware
-  run: meles image --clamd tcp://clamd:3310 --input app.tar
-- run: docker push app:${{ github.sha }}
+      - name: Scan image for malware
+        env:
+          MELES_CLAMD: tls://meles-clamd.meles.svc.cluster.local:3310
+          MELES_CLAMD_TOKEN: ${{ secrets.MELES_CLAMD_TOKEN }}
+          MELES_CLAMD_CA_PEM: ${{ secrets.MELES_CLAMD_CA }}
+        run: |
+          printf '%s\n' "$MELES_CLAMD_CA_PEM" > clamd-ca.crt
+          meles selftest --yara --clamd-ca clamd-ca.crt
+          meles image --clamd-ca clamd-ca.crt "$IMAGE"
 ```
 
-With GitHub code scanning, write SARIF and upload it even when meles fails
+**Scan before pushing.** Scan the image as a `docker save` archive (or an
+OCI layout), push it only if it is clean:
+
+```yaml
+      - run: docker build -t app:${{ github.sha }} . && docker save app:${{ github.sha }} -o app.tar
+      - run: meles image --input app.tar
+      - run: docker push app:${{ github.sha }}
+```
+
+**GitHub code scanning.** Write SARIF and upload it even when meles fails
 the job:
 
 ```yaml
-- name: Scan image for malware
-  run: meles image --clamd tcp://clamd:3310 --format sarif "$IMAGE" > meles.sarif
-- name: Upload to code scanning
-  if: always()
-  uses: github/codeql-action/upload-sarif@v3
-  with:
-    sarif_file: meles.sarif
-    category: meles
+      - name: Scan image for malware
+        run: meles image --format sarif "$IMAGE" > meles.sarif
+      - name: Upload to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: meles.sarif
+          category: meles
 ```
 
 In SARIF, findings are errors and skipped files warnings (the scan is
@@ -237,17 +298,23 @@ properties. The fingerprint leaves out the digest, so an alert stays the
 same alert in the next version of the image. A failed scan marks the run
 unsuccessful instead of producing an empty, clean-looking report.
 
-GitLab CI:
+**GitLab CI.** The ClamAV image as a service. It downloads the database on
+every run, so keep the number of runs moderate or use the clamd of a
+cluster. The job waits until clamd has loaded the database. The meles image
+has no shell, so the job installs meles into a Go image:
 
 ```yaml
 malware-scan:
-  image: ghcr.io/movray/meles:latest
+  image: golang:1.26
   services:
     - name: clamav/clamav:1.4
       alias: clamd
   variables:
     MELES_CLAMD: tcp://clamd:3310
   script:
+    - go install github.com/movray/meles/cmd/meles@main
+    - for i in $(seq 30); do meles selftest > /dev/null 2>&1 && break; sleep 10; done
+    - meles selftest
     - meles image "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
 ```
 

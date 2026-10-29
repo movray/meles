@@ -1,0 +1,45 @@
+name: readme-example
+# Runs the README's GitHub Actions example ("A clamd in the job") with the
+# official ClamAV image and the full signature database. Started by hand
+# only: every run without a cached database downloads it from Cisco Talos.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  malware-scan:
+    runs-on: ubuntu-latest
+    env:
+      MELES_CLAMD: tcp://127.0.0.1:3310
+      IMAGE: docker.io/library/busybox:1.37
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The README installs a released meles; this checks the checkout.
+      - run: go install ./cmd/meles
+      - name: Signature database from the cache
+        uses: actions/cache@v4
+        with:
+          path: clamav-db
+          key: clamav-db-${{ github.run_id }}
+          restore-keys: clamav-db-
+      - name: Start clamd
+        run: |
+          mkdir -p clamav-db && chmod 0777 clamav-db
+          docker run --rm -v "$PWD/clamav-db:/var/lib/clamav" --entrypoint freshclam \
+            clamav/clamav:1.4 --foreground --stdout
+          docker run -d --name clamd -p 127.0.0.1:3310:3310 -e CLAMAV_NO_FRESHCLAMD=true \
+            -v "$PWD/clamav-db:/var/lib/clamav" clamav/clamav:1.4
+          for i in $(seq 120); do
+            (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 | grep -q PONG) 2>/dev/null && exit 0
+            sleep 2
+          done
+          docker logs clamd; exit 1
+      - run: meles selftest
+      - run: meles image "$IMAGE"
+      - if: always()
+        run: docker logs clamd 2>&1 | tail -30 || true
