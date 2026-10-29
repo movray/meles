@@ -399,14 +399,19 @@ result is a `MalwareReport` (`meles.io/v1alpha1`) in the pod's namespace, one
 per workload and container, owned by the workload and deleted with it:
 
 ```
-$ kubectl get malwarereports -A
-NAMESPACE   NAME                         WORKLOAD     CONTAINER   IMAGE                     STATUS     FINDINGS
-shop        replicaset-web-5d8f7c-app    ReplicaSet   app         docker.io/acme/web        Clean      0
-tools       cronjob-backup-rclone        CronJob      rclone      docker.io/rclone/rclone   Infected   1
+$ kubectl -n shop get malwarereports
+NAME                                   WORKLOAD     CONTAINER              IMAGE                                   STATUS   FINDINGS   AGE
+cluster-shop-db-bootstrap-controller   Cluster      bootstrap-controller   ghcr.io/cloudnative-pg/cloudnative-pg   Clean    0          5d12h
+cluster-shop-db-postgres               Cluster      postgres               ghcr.io/cloudnative-pg/postgresql       Clean    0          5d12h
+replicaset-web-7cb58b7fff-api-server   ReplicaSet   api-server             docker.io/library/python                Clean    0          5d12h
+replicaset-web-7cb58b7fff-worker       ReplicaSet   worker                 docker.io/library/python                Clean    0          5d12h
+replicaset-web-7cb58b7fff-init-db      ReplicaSet   init-db                docker.io/library/postgres              Clean    0          5d12h
+replicaset-web-7cb58b7fff-nginx        ReplicaSet   nginx                  docker.io/library/nginx                 Clean    0          5d12h
 ```
 
 - A workload is the pod's controller (ReplicaSet, StatefulSet, DaemonSet,
-  Job), the CronJob of a Job, or the pod itself.
+  Job, or a custom resource such as a CloudNativePG `Cluster`), the CronJob
+  of a Job, or the pod itself.
 - Every digest is scanned once; other workloads with the same image get a
   copy of the result.
 - `Status` is `Clean`, `Infected`, `Incomplete` (files skipped) or `Error`
