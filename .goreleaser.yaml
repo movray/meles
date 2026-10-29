@@ -1,0 +1,53 @@
+# Binaries and the GitHub release. The image is built with ko and the chart
+# with helm in .github/workflows/release.yml.
+version: 2
+
+builds:
+  - id: meles
+    main: ./cmd/meles
+    binary: meles
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "meles_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\(.+\))?:'
+      - '^chore\(chart\): appVersion'
+
+release:
+  prerelease: auto
+  footer: |
+    **Image:** `ghcr.io/movray/meles:{{ .Version }}` (linux/amd64, linux/arm64)
+    **Helm chart:** `helm install meles oci://ghcr.io/movray/charts/meles --version {{ .Version }}`
+
+    Binaries, image and chart carry build provenance; verify with `gh attestation verify`
+    (see the README, section Install).
