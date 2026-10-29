@@ -28,7 +28,8 @@ jobs:
       IMAGE: ghcr.io/movray/meles
       CHART_REPO: oci://ghcr.io/movray/charts
       # Go tools are installed with go install: the module proxy and the
-      # checksum database verify them. Keep KO_VERSION in line with the
+      # checksum database verify them. GOTOOLCHAIN=auto lets a tool fetch
+      # the newer Go it requires; meles itself is built with the Go above. Keep KO_VERSION in line with the
       # Makefile.
       GORELEASER_VERSION: v2.19.0
       KO_VERSION: v0.18.0
@@ -42,7 +43,10 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          # Latest patch release of the Go version in go.mod: go-version-file
+          # would pick exactly 1.26.0 and ship its fixed vulnerabilities.
+          go-version: "1.26.x"
+          check-latest: true
           # No cache in the release job: a poisoned cache would end up in
           # the published artifacts.
           cache: false
@@ -50,6 +54,7 @@ jobs:
       - name: Tools
         run: |
           set -eu
+          export GOTOOLCHAIN=auto
           go install "github.com/goreleaser/goreleaser/v2@$GORELEASER_VERSION"
           go install "github.com/google/ko@$KO_VERSION"
           go install "github.com/sigstore/cosign/v3/cmd/cosign@$COSIGN_VERSION"
