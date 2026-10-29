@@ -255,6 +255,11 @@ malware-scan:
 
 `meles server` serves a web UI and JSON API:
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
+  <img src="docs/images/dashboard-light.png" alt="meles dashboard: a quick scan form, counters for tracked and infected images, an infected EICAR test image under Needs attention, and recent runs">
+</picture>
+
 - **Dashboard** – quick scan, images that need attention, upcoming and recent runs
 - **Scans** – image references with an optional cron schedule (`@daily`,
   `0 3 * * 1-5`, `@every 6h`, `CRON_TZ=Europe/Berlin …`)
