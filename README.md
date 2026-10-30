@@ -83,8 +83,15 @@ cosign verify ghcr.io/movray/meles:$VERSION \
 
 ## Quick start
 
-You need a running clamd (e.g. `apt install clamav-daemon`, or the
-`clamav/clamav` image).
+You need a running clamd. With `apt install clamav-daemon` meles finds its
+socket (`/run/clamav/clamd.ctl`) on its own; the `clamav/clamav` image works,
+too:
+
+```sh
+# clamd in a container; loading the signatures takes a minute or two
+docker run -d --name clamd -p 3310:3310 clamav/clamav:1.4
+export MELES_CLAMD=tcp://localhost:3310
+```
 
 ```sh
 meles selftest                     # checks the whole chain with EICAR test images
