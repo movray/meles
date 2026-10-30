@@ -2,9 +2,9 @@ apiVersion: v2
 name: meles
 description: Malware scanner for container images - web UI with scheduled scans, clamd workers and a ClamAV database mirror
 type: application
-version: 0.1.0-rc.2
+version: 0.1.0
 # Tag of the meles image; override with image.tag.
-appVersion: "0.1.0-rc.2"
+appVersion: "0.1.0"
 home: https://github.com/movray/meles
 sources:
   - https://github.com/movray/meles
