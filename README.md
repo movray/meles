@@ -33,6 +33,8 @@ substitute for image signing, SBOMs or runtime detection.
 
 ## Documentation
 
+- [docs/getting-started.md](docs/getting-started.md): a step-by-step tour,
+  from a first scan to the scan gate in a cluster
 - this README: using meles (CLI, web UI, Kubernetes, Harbor)
 - [docs/architecture.md](docs/architecture.md): how it works, where state
   lives, security model, design decisions
@@ -82,6 +84,9 @@ cosign verify ghcr.io/movray/meles:$VERSION \
 ```
 
 ## Quick start
+
+New to meles? [docs/getting-started.md](docs/getting-started.md) walks
+through it step by step.
 
 You need a running clamd. With `apt install clamav-daemon` meles finds its
 socket (`/run/clamav/clamd.ctl`) on its own; the `clamav/clamav` image works,
@@ -265,10 +270,11 @@ jobs:
       MELES_CLAMD: tcp://127.0.0.1:3310
       IMAGE: ghcr.io/org/app:${{ github.sha }}
     steps:
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - run: go install github.com/movray/meles/cmd/meles@main
+      - name: Install meles
+        run: |
+          v=0.1.0
+          curl -fsSL "https://github.com/movray/meles/releases/download/v$v/meles_${v}_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin meles
       - name: Signature database from the cache
         uses: actions/cache@v4
         with:
