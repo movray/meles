@@ -158,6 +158,15 @@ After the release, set `version` and `appVersion` in
 a checkout of `main` then installs the latest published image; before that
 commit, it points to the previous release.
 
+For a final release (not a pre-release), also update the version in the
+copy-and-paste examples of `README.md` and `docs/getting-started.md` (TL;DR,
+Install, the CI example, the `helm` commands) in a commit
+`docs: install examples for X.Y.Z`. To find them:
+
+```sh
+git grep -n -F '0.1.0' -- README.md docs/getting-started.md   # the previous version
+```
+
 `make image` builds and pushes the same image by hand to `KO_DOCKER_REPO`,
 e.g. for a test registry. Build from a clean checkout so that the version is
 not `-dirty`.
