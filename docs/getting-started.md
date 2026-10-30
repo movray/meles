@@ -1,5 +1,33 @@
 # Getting started
 
+## TL;DR
+
+On your machine (Linux amd64, Docker, bash):
+
+```sh
+curl -fsSL https://github.com/movray/meles/releases/download/v0.1.0/meles_0.1.0_linux_amd64.tar.gz | tar -xz meles
+docker run -d --name clamd -p 127.0.0.1:3310:3310 clamav/clamav:1.4
+export MELES_CLAMD=tcp://127.0.0.1:3310
+until (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 | grep -q PONG) 2>/dev/null; do sleep 5; done
+./meles selftest
+./meles image alpine:3.20
+```
+
+In Kubernetes:
+
+```sh
+kubectl create namespace meles
+kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
+helm install meles oci://ghcr.io/movray/charts/meles --version 0.1.0 -n meles
+kubectl -n meles rollout status deploy/meles-clamd --timeout=15m
+kubectl -n meles port-forward svc/meles-server 8080:80   # http://localhost:8080/
+```
+
+Everything below explains these steps and goes further: a file hidden by a
+later layer, the operator, the scan gate.
+
+## The tour
+
 A step-by-step tour: scan an image on your machine, find a file that a
 later layer deleted, then run meles in a Kubernetes cluster with the web UI,
 the operator and the scan gate. The [README](../README.md) is the reference
