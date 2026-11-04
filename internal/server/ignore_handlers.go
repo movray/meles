@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
@@ -63,9 +64,12 @@ func ignoreInputFrom(get func(string) string) ignoreInput {
 }
 
 // localPath returns p if it is a path on this server, else "": the form
-// must not redirect elsewhere.
+// must not redirect elsewhere. Browsers drop tabs and line breaks from URLs
+// and read a backslash as a slash, so "/\t/evil.example" would become
+// "//evil.example"; any control character or backslash is refused.
 func localPath(p string) string {
-	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.ContainsAny(p, "\\\r\n") {
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") ||
+		strings.ContainsFunc(p, func(r rune) bool { return r == '\\' || unicode.IsControl(r) }) {
 		return ""
 	}
 	return p

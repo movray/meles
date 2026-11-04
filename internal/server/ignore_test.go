@@ -236,3 +236,25 @@ func TestIgnoreOrigin(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalPath(t *testing.T) {
+	for p, want := range map[string]string{
+		"/cluster/shop/replicaset-miner-app": "/cluster/shop/replicaset-miner-app",
+		"/ignores?ns=shop#rule-2":            "/ignores?ns=shop#rule-2",
+		"/cluster/%09/x":                     "/cluster/%09/x", // escaped, stays a path
+		"":                                   "",
+		"ignores":                            "",
+		"https://evil.example/":              "",
+		"//evil.example/":                    "",
+		"/\\evil.example/":                   "",
+		"/\t/evil.example/":                  "",
+		"/\r\n/evil.example/":                "",
+		"/\x00/evil.example/":                "",
+		"/\x7f/evil.example/":                "",
+		"/\u0085/evil.example/":              "",
+	} {
+		if got := localPath(p); got != want {
+			t.Errorf("localPath(%q) = %q, want %q", p, got, want)
+		}
+	}
+}
