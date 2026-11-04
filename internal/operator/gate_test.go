@@ -55,7 +55,7 @@ func released(p *corev1.Pod) bool { return !gated(p) }
 // stays held.
 func (e *env) stillGated(t *testing.T, ns, podName, reportName, status string) {
 	t.Helper()
-	e.reportWhere(t, ns, reportName, status, func(r *v1alpha1.MalwareReport) bool { return r.Report.Summary.Status == status })
+	e.reportWhere(t, ns, reportName, status, func(r *v1alpha1.MalwareReport) bool { return r.Status.Summary.Status == status })
 	time.Sleep(time.Second)
 	var pod corev1.Pod
 	if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: podName}, &pod); err != nil {
@@ -78,7 +78,7 @@ func TestScanGate(t *testing.T) {
 	if want := e.reg.Ref("clean") + digest; pod.Spec.Containers[0].Image != want {
 		t.Errorf("image = %s, want %s", pod.Spec.Containers[0].Image, want)
 	}
-	if rep := e.report(t, ns, "pod-web-app").Report; rep.Summary.Status != v1alpha1.StatusClean || "@"+rep.Image.Digest != digest {
+	if rep := e.report(t, ns, "pod-web-app").Status; rep.Summary.Status != v1alpha1.StatusClean || "@"+rep.Image.Digest != digest {
 		t.Errorf("report = %+v", rep)
 	}
 
@@ -126,13 +126,13 @@ func TestScanGateEngineDown(t *testing.T) {
 			} else {
 				e.stillGated(t, ns, "web", "pod-web-app", v1alpha1.StatusError)
 			}
-			if rep := e.report(t, ns, "pod-web-app").Report; rep.ErrorSource != v1alpha1.ErrorSourceEngine {
+			if rep := e.report(t, ns, "pod-web-app").Status; rep.ErrorSource != v1alpha1.ErrorSourceEngine {
 				t.Errorf("report = %+v", rep)
 			}
 
 			e.gatedPod(t, ns, "missing", "does-not-exist", v1alpha1.GateEnforce)
 			e.stillGated(t, ns, "missing", "pod-missing-app", v1alpha1.StatusError)
-			if rep := e.report(t, ns, "pod-missing-app").Report; rep.ErrorSource != v1alpha1.ErrorSourceImage {
+			if rep := e.report(t, ns, "pod-missing-app").Status; rep.ErrorSource != v1alpha1.ErrorSourceImage {
 				t.Errorf("report = %+v", rep)
 			}
 		})

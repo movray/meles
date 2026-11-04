@@ -18,7 +18,7 @@ func historyGroup(w v1alpha1.Workload) string {
 }
 
 func clusterEvent(cluster string, rep *v1alpha1.MalwareReport, deleted bool) *store.ClusterEvent {
-	d := rep.Report
+	d := rep.Status
 	return &store.ClusterEvent{
 		Cluster: cluster, Namespace: rep.Namespace, Report: rep.Name, Group: historyGroup(d.Workload),
 		WorkloadKind: d.Workload.Kind, WorkloadName: d.Workload.Name, Container: d.Workload.Container,

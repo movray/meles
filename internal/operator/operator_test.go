@@ -161,7 +161,7 @@ func (e *env) runPod(t *testing.T, ns, podName string, owner client.Object, imag
 // report waits for a report to appear.
 func (e *env) report(t *testing.T, ns, reportName string) *v1alpha1.MalwareReport {
 	t.Helper()
-	return e.reportWhere(t, ns, reportName, "", func(*v1alpha1.MalwareReport) bool { return true })
+	return e.reportWhere(t, ns, reportName, "with a result", func(r *v1alpha1.MalwareReport) bool { return !r.Pending() })
 }
 
 // reportWhere waits for a report that satisfies ok.
@@ -175,7 +175,7 @@ func (e *env) reportWhere(t *testing.T, ns, reportName, what string, ok func(*v1
 			return &rep
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("report %s/%s %s: %v, last %+v", ns, reportName, what, err, rep.Report)
+			t.Fatalf("report %s/%s %s: %v, last %+v", ns, reportName, what, err, rep.Status)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -206,7 +206,7 @@ func TestOperator(t *testing.T) {
 	evil := e.imageID(t, "eicar-whiteout")
 	e.runPod(t, ns, "web-1-a", web, evil)
 	rep := e.report(t, ns, "replicaset-web-1-app")
-	d := rep.Report
+	d := rep.Status
 	if d.Summary.Status != v1alpha1.StatusInfected || d.Summary.Findings != 1 || d.Findings[0].Path != "/tmp/payload/eicar.com" || d.Findings[0].Status != scan.StatusDeleted {
 		t.Errorf("report = %+v", d)
 	}
@@ -221,7 +221,7 @@ func TestOperator(t *testing.T) {
 	e.r.results, e.r.order = nil, nil
 	e.r.mu.Unlock()
 	e.runPod(t, ns, "solo", nil, evil)
-	if got := e.report(t, ns, "pod-solo-app").Report.Summary.Status; got != v1alpha1.StatusInfected {
+	if got := e.report(t, ns, "pod-solo-app").Status.Summary.Status; got != v1alpha1.StatusInfected {
 		t.Errorf("reused report status = %s", got)
 	}
 	if e.engine.Scans.Load() != scans {
@@ -242,13 +242,13 @@ func TestOperator(t *testing.T) {
 	}
 	e.create(t, job)
 	e.runPod(t, ns, "backup-1-x", job, e.imageID(t, "clean"))
-	if got := e.report(t, ns, "cronjob-backup-app").Report; got.Summary.Status != v1alpha1.StatusClean || got.Workload.Kind != "CronJob" {
+	if got := e.report(t, ns, "cronjob-backup-app").Status; got.Summary.Status != v1alpha1.StatusClean || got.Workload.Kind != "CronJob" {
 		t.Errorf("cronjob report = %+v", got)
 	}
 
 	// An image imported into the node has no registry: Error, never Clean.
 	e.runPod(t, ns, "imported", nil, "sha256:3f1a6d3b84d0b5e8c0a2f0f5a1f0e0a8b9c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3")
-	if got := e.report(t, ns, "pod-imported-app").Report; got.Summary.Status != v1alpha1.StatusError || got.Error == "" {
+	if got := e.report(t, ns, "pod-imported-app").Status; got.Summary.Status != v1alpha1.StatusError || got.Error == "" {
 		t.Errorf("imported image report = %+v", got)
 	}
 
@@ -259,8 +259,8 @@ func TestOperator(t *testing.T) {
 	}
 	scans = e.engine.Scans.Load()
 	again := e.reportWhere(t, ns, "replicaset-web-1-app", "written again", func(r *v1alpha1.MalwareReport) bool { return r.UID != rep.UID })
-	if again.Report.Summary.Status != v1alpha1.StatusInfected || e.engine.Scans.Load() != scans {
-		t.Errorf("report written again = %+v after %d engine scans", again.Report, e.engine.Scans.Load()-scans)
+	if again.Status.Summary.Status != v1alpha1.StatusInfected || e.engine.Scans.Load() != scans {
+		t.Errorf("report written again = %+v after %d engine scans", again.Status, e.engine.Scans.Load()-scans)
 	}
 }
 
@@ -272,7 +272,7 @@ func TestIgnoreRules(t *testing.T) {
 	ns := "shop"
 	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
 	e.runPod(t, ns, "app", nil, e.imageID(t, "clean"))
-	if got := e.report(t, ns, "pod-app-app").Report; got.Summary.Status != v1alpha1.StatusIncomplete || len(got.Skipped) != 1 || got.Skipped[0].Signature == "" || got.Skipped[0].SHA256 == "" {
+	if got := e.report(t, ns, "pod-app-app").Status; got.Summary.Status != v1alpha1.StatusIncomplete || len(got.Skipped) != 1 || got.Skipped[0].Signature == "" || got.Skipped[0].SHA256 == "" {
 		t.Fatalf("report = %+v", got)
 	}
 	scans := e.engine.Scans.Load()
@@ -287,11 +287,11 @@ func TestIgnoreRules(t *testing.T) {
 	}
 	e.create(t, rules)
 	clean := e.reportWhere(t, ns, "pod-app-app", "clean by the rule", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.Summary.Status == v1alpha1.StatusClean
+		return r.Status.Summary.Status == v1alpha1.StatusClean
 	})
-	s := clean.Report.Summary
-	if s.Skipped != 0 || s.IgnoredSkipped != 1 || s.Ignored != 1 || clean.Report.Skipped[0].Ignored == nil || clean.Report.Skipped[0].Ignored.Rule != "known/hello" {
-		t.Errorf("summary %+v, skipped %+v", s, clean.Report.Skipped)
+	s := clean.Status.Summary
+	if s.Skipped != 0 || s.IgnoredSkipped != 1 || s.Ignored != 1 || clean.Status.Skipped[0].Ignored == nil || clean.Status.Skipped[0].Ignored.Rule != "known/hello" {
+		t.Errorf("summary %+v, skipped %+v", s, clean.Status.Skipped)
 	}
 	if n := e.engine.Scans.Load(); n != scans {
 		t.Errorf("rescanned for a rule change: %d engine scans", n-scans)
@@ -317,7 +317,7 @@ func TestIgnoreRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.reportWhere(t, ns, "pod-app-app", "incomplete again", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.Summary.Status == v1alpha1.StatusIncomplete && r.Report.Summary.Ignored == 0 && r.Report.Skipped[0].Ignored == nil
+		return r.Status.Summary.Status == v1alpha1.StatusIncomplete && r.Status.Summary.Ignored == 0 && r.Status.Skipped[0].Ignored == nil
 	})
 }
 
@@ -354,7 +354,7 @@ func TestLongScanDoesNotBlock(t *testing.T) {
 
 	release <- struct{}{}
 	for _, n := range []string{"pod-slow-1-app", "pod-slow-2-app"} {
-		if got := e.report(t, ns, n).Report.Summary.Status; got != v1alpha1.StatusInfected {
+		if got := e.report(t, ns, n).Status.Summary.Status; got != v1alpha1.StatusInfected {
 			t.Errorf("%s: %s", n, got)
 		}
 	}
@@ -391,25 +391,25 @@ func TestPullSecrets(t *testing.T) {
 		p.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "registry"}}
 	})
 	denied := e.reportWhere(t, ns, "pod-private-app", "refused", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.Summary.Status == v1alpha1.StatusError
+		return r.Status.Summary.Status == v1alpha1.StatusError
 	})
 	want := "kubectl -n shop create rolebinding meles-pull-secrets --clusterrole=meles-pull-secret-reader --serviceaccount=meles:meles-operator"
-	if !strings.Contains(denied.Report.Error, "UNAUTHORIZED") || !strings.Contains(denied.Report.Error, want) {
-		t.Errorf("error without the command to grant: %q", denied.Report.Error)
+	if !strings.Contains(denied.Status.Error, "UNAUTHORIZED") || !strings.Contains(denied.Status.Error, want) {
+		t.Errorf("error without the command to grant: %q", denied.Status.Error)
 	}
 
 	// A rescan that fails again writes the error and ends: the report is
 	// rescanned once, not again and again.
-	before := denied.Report.ScannedAt.Time
+	before := denied.Status.ScannedAt.Time
 	denied.Annotations = map[string]string{v1alpha1.AnnotationRescan: "1"}
 	if err := e.c.Update(context.Background(), denied); err != nil {
 		t.Fatal(err)
 	}
 	denied = e.reportWhere(t, ns, "pod-private-app", "failed rescan written", func(r *v1alpha1.MalwareReport) bool {
-		return !rescanRequested(r) && r.Report.ScannedAt.After(before)
+		return !rescanRequested(r) && r.Status.ScannedAt.After(before)
 	})
-	if denied.Report.Summary.Status != v1alpha1.StatusError {
-		t.Fatalf("failed rescan: status %s", denied.Report.Summary.Status)
+	if denied.Status.Summary.Status != v1alpha1.StatusError {
+		t.Fatalf("failed rescan: status %s", denied.Status.Summary.Status)
 	}
 
 	// The team grants the operator its pull secrets and asks for a rescan.
@@ -427,12 +427,12 @@ func TestPullSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.reportWhere(t, ns, "pod-private-app", "scanned with the pull secret", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.Summary.Status == v1alpha1.StatusInfected
+		return r.Status.Summary.Status == v1alpha1.StatusInfected
 	})
 
 	// A pod without pull secrets: the error says so.
 	e.runPod(t, ns, "anonymous", nil, clean)
-	if got := e.report(t, ns, "pod-anonymous-app").Report; got.Summary.Status != v1alpha1.StatusError || !strings.Contains(got.Error, "no imagePullSecrets") {
+	if got := e.report(t, ns, "pod-anonymous-app").Status; got.Summary.Status != v1alpha1.StatusError || !strings.Contains(got.Error, "no imagePullSecrets") {
 		t.Errorf("without pull secret: %+v %q", got.Summary, got.Error)
 	}
 }
@@ -503,18 +503,18 @@ func TestRescan(t *testing.T) {
 	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
 	e.runPod(t, ns, "app", nil, e.imageID(t, "clean"))
 	first := e.report(t, ns, "pod-app-app")
-	if first.Report.Summary.Status != v1alpha1.StatusIncomplete {
-		t.Fatalf("status with too small limits = %s", first.Report.Summary.Status)
+	if first.Status.Summary.Status != v1alpha1.StatusIncomplete {
+		t.Fatalf("status with too small limits = %s", first.Status.Summary.Status)
 	}
 
 	// Incomplete is retried after RetryIncompleteAfter: with raised limits it
 	// is clean.
 	e.engine.SetMaxSize(0)
 	clean := e.reportWhere(t, ns, "pod-app-app", "clean after retry", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.Summary.Status == v1alpha1.StatusClean
+		return r.Status.Summary.Status == v1alpha1.StatusClean
 	})
-	if clean.Report.Scanner.Signatures != "1" {
-		t.Errorf("signatures = %q", clean.Report.Scanner.Signatures)
+	if clean.Status.Scanner.Signatures != "1" {
+		t.Errorf("signatures = %q", clean.Status.Scanner.Signatures)
 	}
 
 	// Without a database update a clean result is kept past RescanInterval.
@@ -527,13 +527,13 @@ func TestRescan(t *testing.T) {
 	// After an update it is rescanned with the new signatures.
 	e.engine.SetSignatures("2")
 	rescanned := e.reportWhere(t, ns, "pod-app-app", "rescanned", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.Scanner.Signatures == "2" && r.Report.Summary.Status == v1alpha1.StatusClean
+		return r.Status.Scanner.Signatures == "2" && r.Status.Summary.Status == v1alpha1.StatusClean
 	})
 
 	// A second workload with the image gets a copy of the result.
 	e.runPod(t, ns, "copy", nil, e.imageID(t, "clean"))
-	if got := e.report(t, ns, "pod-copy-app").Report; !got.ScannedAt.Equal(&rescanned.Report.ScannedAt) {
-		t.Errorf("copy scanned at %v, want %v", got.ScannedAt, rescanned.Report.ScannedAt)
+	if got := e.report(t, ns, "pod-copy-app").Status; !got.ScannedAt.Equal(&rescanned.Status.ScannedAt) {
+		t.Errorf("copy scanned at %v, want %v", got.ScannedAt, rescanned.Status.ScannedAt)
 	}
 
 	// meles.io/rescan scans again although the result is current, removes
@@ -545,12 +545,12 @@ func TestRescan(t *testing.T) {
 		t.Fatal(err)
 	}
 	forced := e.reportWhere(t, ns, "pod-app-app", "rescanned on request", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.ScannedAt.After(rescanned.Report.ScannedAt.Time)
+		return r.Status.ScannedAt.After(rescanned.Status.ScannedAt.Time)
 	})
 	if rescanRequested(forced) || e.engine.Scans.Load() == scans {
 		t.Errorf("annotations %v after %d engine scans", forced.Annotations, e.engine.Scans.Load()-scans)
 	}
 	e.reportWhere(t, ns, "pod-copy-app", "updated", func(r *v1alpha1.MalwareReport) bool {
-		return r.Report.ScannedAt.Equal(&forced.Report.ScannedAt)
+		return r.Status.ScannedAt.Equal(&forced.Status.ScannedAt)
 	})
 }

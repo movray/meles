@@ -1,5 +1,5 @@
 {{define "content"}}
-{{$m := .Data.Report}}{{$r := $m.Report}}{{$st := clusterStatus $r.Summary.Status}}
+{{$m := .Data.Report}}{{$r := $m.Status}}{{$st := clusterStatus $r.Summary.Status}}
 <div class="page-head">
   <div>
     <p class="crumb"><a href="/cluster">Cluster</a> / <a href="{{query "/cluster" "namespace" $m.Namespace}}">{{$m.Namespace}}</a> / {{$m.Name}}</p>

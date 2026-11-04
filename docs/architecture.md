@@ -211,8 +211,19 @@ namespace of the app, owned by the workload: teams read their reports with
 `kubectl`, and deleting a workload deletes its reports. The workload is the
 pod's controller (ReplicaSet, StatefulSet, DaemonSet, Job), the CronJob of a
 Job, or the pod itself. A report of a ReplicaSet records its Deployment as
-`workload.parent`, derived from `pod-template-hash` without further
+`status.workload.parent`, derived from `pod-template-hash` without further
 permissions, so history groups across rollouts.
+
+The result lives in the `status` subresource, which only the operator may
+write (`malwarereports/status`). The scan gate and the reuse of results
+across workloads trust it, so neither the server's `patch` for the rescan
+annotation nor a manifest applied by GitOps or by a user with rights on
+the object may change it: the API server drops `status` from creates and
+updates of the object. Reuse also compares the digest in the status, not
+only the digest label, which anyone who may patch the object can change. A
+report without a status (just created, or kept from a version before
+0.1.1, which had the result in `.report`) counts as not scanned: the
+operator scans the image again, the UI does not show it.
 
 The API group `meles.io` is a registered domain: renaming a group breaks
 installations.
@@ -460,8 +471,8 @@ scan.
 |---|---|---|
 | clamd + proxy | none | TLS port 3310 with token; NetworkPolicy: only pods of the release (plus `networkPolicy.clamdExtraFrom`) |
 | Mirror | none | HTTP, only for clamd (NetworkPolicy) |
-| Server | read `malwarereports` cluster-wide, `patch` for the rescan button (optional); with UI ignore rules (off by default) `create`/`delete` on `malwareignores` and `clustermalwareignores` | UI and API without login of its own: oauth2-proxy sidecar or keep internal |
-| Operator | read `pods`, `nodes`, `jobs`; write `malwarereports`; read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it; with the scan gate `patch` on `pods` and `create` on events in all namespaces | health port; `/metrics` and `/status` on 8080 (NetworkPolicy: server and `operatorMetricsFrom` only); with the scan gate the webhook (HTTPS, port 9443) |
+| Server | read `malwarereports` cluster-wide, `patch` for the rescan button (optional; cannot change the result in the status); with UI ignore rules (off by default) `create`/`delete` on `malwareignores` and `clustermalwareignores` | UI and API without login of its own: oauth2-proxy sidecar or keep internal |
+| Operator | read `pods`, `nodes`, `jobs`; write `malwarereports` and, as the only component, `malwarereports/status` (the result); read ignore rules, write their status; leases and events in its namespace; `get` on `secrets`/`serviceaccounts` only where a namespace grants it; with the scan gate `patch` on `pods` and `create` on events in all namespaces | health port; `/metrics` and `/status` on 8080 (NetworkPolicy: server and `operatorMetricsFrom` only); with the scan gate the webhook (HTTPS, port 9443) |
 | Harbor adapter | none | HTTP API with bearer token |
 
 - No component needs to run as root; the meles image is non-root on

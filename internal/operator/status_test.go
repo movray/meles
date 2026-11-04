@@ -64,13 +64,13 @@ func TestReportMetrics(t *testing.T) {
 	rep := func(ns, name, status string) *v1alpha1.MalwareReport {
 		return &v1alpha1.MalwareReport{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-			Report:     v1alpha1.ReportData{Summary: v1alpha1.Summary{Status: status}},
+			Status:     v1alpha1.ReportData{Summary: v1alpha1.Summary{Status: status}},
 		}
 	}
 	infected := rep("shop", "c", v1alpha1.StatusInfected)
-	infected.Report.Summary.Findings = 2
-	infected.Report.Workload = v1alpha1.Workload{Kind: "ReplicaSet", Name: "web-5d8f", Parent: "web", Container: "app"}
-	infected.Report.Image = v1alpha1.Image{Repository: "reg/web", Reference: "reg/web:1.2"}
+	infected.Status.Summary.Findings = 2
+	infected.Status.Workload = v1alpha1.Workload{Kind: "ReplicaSet", Name: "web-5d8f", Parent: "web", Container: "app"}
+	infected.Status.Image = v1alpha1.Image{Repository: "reg/web", Reference: "reg/web:1.2"}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		rep("shop", "a", v1alpha1.StatusClean), rep("shop", "b", v1alpha1.StatusClean),
 		infected, rep("db", "d", v1alpha1.StatusError),

@@ -338,9 +338,9 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 	case apierrors.IsNotFound(err):
 	case err != nil:
 		return nil, 0, fmt.Errorf("get report %s: %w", name, err)
-	case existing.Report.Image.Digest == img.digest && !force:
+	case existing.Status.Image.Digest == img.digest && !force:
 		prio = prioRescan
-		cur := resultFromData(existing.Report).withIgnore(rules, img, now)
+		cur := resultFromData(existing.Status).withIgnore(rules, img, now)
 		stale, wait, err := r.stale(ctx, cur)
 		if err != nil {
 			return nil, 0, err
@@ -349,10 +349,10 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 			wait = minWait(wait, expiry)
 			// Write only if the rules or the workload fields (reports
 			// written before Parent existed) changed the report.
-			want := existing.Report.DeepCopy()
+			want := existing.Status.DeepCopy()
 			cur.apply(want)
 			want.Workload.Parent = parent
-			if equality.Semantic.DeepEqual(*want, existing.Report) {
+			if equality.Semantic.DeepEqual(*want, existing.Status) {
 				return &cur, wait, nil
 			}
 			return &cur, wait, r.writeReport(ctx, pod, owner, c, parent, name, cur)
@@ -375,7 +375,7 @@ func (r *Reconciler) reconcileContainer(ctx context.Context, pod *corev1.Pod, ow
 		// A forced rescan takes only results newer than the report.
 		var newer time.Time
 		if force {
-			newer = existing.Report.ScannedAt.Time
+			newer = existing.Status.ScannedAt.Time
 		}
 		if res, ok, err = r.cachedResult(ctx, img, platforms, force, newer); err != nil {
 			return nil, 0, err
@@ -415,7 +415,8 @@ func minWait(a, b time.Duration) time.Duration {
 	return min(a, b)
 }
 
-// writeReport creates or updates the report of a container with res.
+// writeReport creates or updates the report of a container with res: the
+// object with its labels first, then the result in the status subresource.
 func (r *Reconciler) writeReport(ctx context.Context, pod *corev1.Pod, owner metav1.OwnerReference, c container, parent, name string, res result) error {
 	img := c.img
 	rep := &v1alpha1.MalwareReport{ObjectMeta: metav1.ObjectMeta{Namespace: pod.Namespace, Name: name}}
@@ -430,13 +431,25 @@ func (r *Reconciler) writeReport(ctx context.Context, pod *corev1.Pod, owner met
 		rep.Labels[v1alpha1.LabelContainer] = labelValue(c.name)
 		rep.Labels[v1alpha1.LabelDigest] = digestLabel(img.digest)
 		rep.OwnerReferences = []metav1.OwnerReference{owner}
-		rep.Report.Workload = v1alpha1.Workload{Kind: owner.Kind, Name: owner.Name, Parent: parent, Container: c.name, InitContainer: c.init}
-		rep.Report.Image = v1alpha1.Image{Repository: img.repository, Reference: img.reference, Digest: img.digest}
-		res.apply(&rep.Report)
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("write report %s: %w", name, err)
+	}
+	want := rep.Status.DeepCopy()
+	want.Workload = v1alpha1.Workload{Kind: owner.Kind, Name: owner.Name, Parent: parent, Container: c.name, InitContainer: c.init}
+	want.Image = v1alpha1.Image{Repository: img.repository, Reference: img.reference, Digest: img.digest}
+	res.apply(want)
+	if equality.Semantic.DeepEqual(*want, rep.Status) {
+		return nil
+	}
+	rep.Status = *want
+	if err := r.Client.Status().Update(ctx, rep); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The object exists, so the CRD lacks the status subresource.
+			return fmt.Errorf("write status of report %s: %w (CRD older than the operator? kubectl apply -f charts/meles/crds/ of this version)", name, err)
+		}
+		return fmt.Errorf("write status of report %s: %w", name, err)
 	}
 	return nil
 }
@@ -537,7 +550,7 @@ func (r *Reconciler) reuse(ctx context.Context, digest, platforms string) (resul
 		return result{}, false, fmt.Errorf("list reports: %w", err)
 	}
 	for _, rep := range list.Items {
-		d := rep.Report
+		d := rep.Status
 		if d.Image.Digest != digest || d.Summary.Status == v1alpha1.StatusError || d.PlatformFilter != platforms {
 			continue
 		}
@@ -565,7 +578,7 @@ func (r *Reconciler) propagate(ctx context.Context, digest string, res result) {
 	}
 	for i := range list.Items {
 		rep := &list.Items[i]
-		d := rep.Report
+		d := rep.Status
 		// Error reports have no platform filter; they take any result.
 		if d.Image.Digest != digest || (d.PlatformFilter != "" && d.PlatformFilter != res.filter) {
 			continue
@@ -577,11 +590,16 @@ func (r *Reconciler) propagate(ctx context.Context, digest string, res result) {
 			continue
 		}
 		cur := res.withIgnore(rules, image{repository: d.Image.Repository, digest: digest}, now)
-		cur.apply(&rep.Report)
-		delete(rep.Annotations, v1alpha1.AnnotationRescan)
-		if err := r.Client.Update(ctx, rep); err != nil {
+		cur.apply(&rep.Status)
+		if err := r.Client.Status().Update(ctx, rep); err != nil {
 			r.log().Warn("update report with new result", "namespace", rep.Namespace, "report", rep.Name, "err", err)
 			continue
+		}
+		if _, ok := rep.Annotations[v1alpha1.AnnotationRescan]; ok {
+			delete(rep.Annotations, v1alpha1.AnnotationRescan)
+			if err := r.Client.Update(ctx, rep); err != nil {
+				r.log().Warn("remove rescan annotation", "namespace", rep.Namespace, "report", rep.Name, "err", err)
+			}
 		}
 		r.log().Info("report updated", "namespace", rep.Namespace, "report", rep.Name, "status", cur.summary.Status, "findings", cur.summary.Findings, "ignored", cur.summary.Ignored)
 	}

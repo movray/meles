@@ -143,7 +143,7 @@
   <table>
     <thead><tr><th>Result</th><th>Workload</th><th>Image</th><th class="num">Findings</th><th class="num">Skipped</th><th>Since</th><th>Scanned</th></tr></thead>
     <tbody>
-    {{range $d.Reports}}{{$r := .Report}}
+    {{range $d.Reports}}{{$r := .Status}}
     <tr>
       <td><a class="row-link" href="/cluster/{{.Namespace}}/{{.Name}}">{{template "badge" (clusterStatus $r.Summary.Status)}}</a>{{if rescanPending .}}<div class="sub">rescan requested</div>{{end}}</td>
       <td class="ref">

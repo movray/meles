@@ -27,6 +27,11 @@ rules:
   - apiGroups: [meles.io]
     resources: [malwarereports]
     verbs: [get, list, watch, create, update, patch, delete]
+  # The result lives in the status subresource, which only the operator
+  # may write (the scan gate trusts it).
+  - apiGroups: [meles.io]
+    resources: [malwarereports/status]
+    verbs: [get, update, patch]
   # Ignore rules: read, and report invalid or expired rules in the status.
   - apiGroups: [meles.io]
     resources: [malwareignores, clustermalwareignores]

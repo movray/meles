@@ -99,7 +99,10 @@ func (c reportCollector) Collect(ch chan<- prometheus.Metric) {
 	type key struct{ ns, status string }
 	counts := map[key]int{}
 	for _, rep := range list.Items {
-		d := rep.Report
+		if rep.Pending() {
+			continue
+		}
+		d := rep.Status
 		counts[key{rep.Namespace, d.Summary.Status}]++
 		if d.Summary.Status != v1alpha1.StatusInfected {
 			continue

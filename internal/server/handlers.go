@@ -511,7 +511,7 @@ func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("cluster status since", "err", err)
 	} else {
 		for _, rep := range shown {
-			if t, ok := bySince[store.ClusterKey{Namespace: rep.Namespace, Group: historyGroup(rep.Report.Workload)}]; ok {
+			if t, ok := bySince[store.ClusterKey{Namespace: rep.Namespace, Group: historyGroup(rep.Status.Workload)}]; ok {
 				since[rep.Namespace+"/"+rep.Name] = t
 			}
 		}
@@ -555,7 +555,7 @@ func (s *Server) handleClusterReport(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, errStatus(err), err)
 		return
 	}
-	hist, err := s.store.ClusterHistory(r.Context(), s.clusterName, rep.Namespace, historyGroup(rep.Report.Workload), historyLimit)
+	hist, err := s.store.ClusterHistory(r.Context(), s.clusterName, rep.Namespace, historyGroup(rep.Status.Workload), historyLimit)
 	if err != nil {
 		s.renderError(w, errStatus(err), err)
 		return
@@ -564,7 +564,7 @@ func (s *Server) handleClusterReport(w http.ResponseWriter, r *http.Request) {
 	if rescanPending(rep) {
 		refresh = 10
 	}
-	s.render(w, http.StatusOK, "cluster_report", page{Title: rep.Report.Workload.Name, Nav: "cluster", Refresh: refresh, Data: map[string]any{
+	s.render(w, http.StatusOK, "cluster_report", page{Title: rep.Status.Workload.Name, Nav: "cluster", Refresh: refresh, Data: map[string]any{
 		"Report":  rep,
 		"Rescan":  s.rescan,
 		"History": hist,
@@ -598,7 +598,7 @@ func (s *Server) apiClusterHistory(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, errStatus(err), err)
 		return
 	}
-	hist, err := s.store.ClusterHistory(r.Context(), s.clusterName, rep.Namespace, historyGroup(rep.Report.Workload), historyLimit)
+	hist, err := s.store.ClusterHistory(r.Context(), s.clusterName, rep.Namespace, historyGroup(rep.Status.Workload), historyLimit)
 	if err != nil {
 		writeJSONError(w, errStatus(err), err)
 		return

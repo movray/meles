@@ -96,7 +96,8 @@ func notify(obj any, deleted bool, fn func(*v1alpha1.MalwareReport, bool)) {
 	if t, ok := obj.(toolscache.DeletedFinalStateUnknown); ok {
 		obj = t.Obj
 	}
-	if rep, ok := obj.(*v1alpha1.MalwareReport); ok {
+	// A report without a result yet has nothing to show or record.
+	if rep, ok := obj.(*v1alpha1.MalwareReport); ok && (deleted || !rep.Pending()) {
 		fn(rep, deleted)
 	}
 }
@@ -124,7 +125,7 @@ func (k *KubeReports) List(ctx context.Context) ([]v1alpha1.MalwareReport, error
 	if err := k.cache.List(ctx, &list); err != nil {
 		return nil, fmt.Errorf("list MalwareReports: %w", err)
 	}
-	return list.Items, nil
+	return slices.DeleteFunc(list.Items, func(r v1alpha1.MalwareReport) bool { return r.Pending() }), nil
 }
 
 func (k *KubeReports) Get(ctx context.Context, namespace, name string) (*v1alpha1.MalwareReport, error) {
@@ -137,6 +138,9 @@ func (k *KubeReports) Get(ctx context.Context, namespace, name string) (*v1alpha
 			return nil, fmt.Errorf("MalwareReport %s/%s: %w", namespace, name, store.ErrNotFound)
 		}
 		return nil, fmt.Errorf("get MalwareReport %s/%s: %w", namespace, name, err)
+	}
+	if rep.Pending() {
+		return nil, fmt.Errorf("MalwareReport %s/%s has no result yet: %w", namespace, name, store.ErrNotFound)
 	}
 	return &rep, nil
 }
@@ -183,7 +187,7 @@ func countReports(reps []v1alpha1.MalwareReport) clusterCounts {
 	var c clusterCounts
 	for _, r := range reps {
 		c.Total++
-		switch clusterStatus(r.Report.Summary.Status) {
+		switch clusterStatus(r.Status.Summary.Status) {
 		case store.StatusInfected:
 			c.Infected++
 		case store.StatusError:
@@ -205,14 +209,14 @@ type clusterFilter struct {
 }
 
 func (f clusterFilter) match(r *v1alpha1.MalwareReport) bool {
-	if f.Status != "" && clusterStatus(r.Report.Summary.Status) != f.Status {
+	if f.Status != "" && clusterStatus(r.Status.Summary.Status) != f.Status {
 		return false
 	}
 	if f.Namespace != "" && r.Namespace != f.Namespace {
 		return false
 	}
 	if q := strings.ToLower(f.Query); q != "" {
-		d := r.Report
+		d := r.Status
 		hay := strings.ToLower(strings.Join([]string{r.Namespace, d.Workload.Name, d.Workload.Container, d.Image.Repository, d.Image.Reference, d.Image.Digest}, " "))
 		if !strings.Contains(hay, q) {
 			return false
@@ -229,10 +233,10 @@ func sortReports(reps []v1alpha1.MalwareReport) {
 	}
 	slices.SortFunc(reps, func(a, b v1alpha1.MalwareReport) int {
 		return cmp.Or(
-			cmp.Compare(rank[clusterStatus(a.Report.Summary.Status)], rank[clusterStatus(b.Report.Summary.Status)]),
+			cmp.Compare(rank[clusterStatus(a.Status.Summary.Status)], rank[clusterStatus(b.Status.Summary.Status)]),
 			cmp.Compare(a.Namespace, b.Namespace),
-			cmp.Compare(a.Report.Workload.Name, b.Report.Workload.Name),
-			cmp.Compare(a.Report.Workload.Container, b.Report.Workload.Container),
+			cmp.Compare(a.Status.Workload.Name, b.Status.Workload.Name),
+			cmp.Compare(a.Status.Workload.Container, b.Status.Workload.Container),
 		)
 	})
 }

@@ -258,7 +258,7 @@ func (f *fakeReports) RequestRescan(_ context.Context, ns, name string) error {
 func malwareReport(ns, workload, status string, findings ...v1alpha1.Finding) v1alpha1.MalwareReport {
 	return v1alpha1.MalwareReport{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "replicaset-" + workload + "-app"},
-		Report: v1alpha1.ReportData{
+		Status: v1alpha1.ReportData{
 			Workload:  v1alpha1.Workload{Kind: "ReplicaSet", Name: workload, Container: "app"},
 			Image:     v1alpha1.Image{Repository: "docker.io/acme/" + workload, Reference: "acme/" + workload + ":1", Digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
 			Summary:   v1alpha1.Summary{Status: status, Findings: len(findings), Files: 10},
@@ -299,8 +299,8 @@ func TestClusterReports(t *testing.T) {
 	}
 	// An entry an ignore rule took out of the verdict stays listed, marked.
 	reports.mu.Lock()
-	reports.reports[0].Report.Summary.Ignored, reports.reports[0].Report.Summary.IgnoredSkipped = 1, 1
-	reports.reports[0].Report.Skipped = []v1alpha1.Skipped{{Path: "/usr/src/php.tar.xz", Reason: "engine limit exceeded", Signature: "Heuristics.Limits.Exceeded.MaxRecursion",
+	reports.reports[0].Status.Summary.Ignored, reports.reports[0].Status.Summary.IgnoredSkipped = 1, 1
+	reports.reports[0].Status.Skipped = []v1alpha1.Skipped{{Path: "/usr/src/php.tar.xz", Reason: "engine limit exceeded", Signature: "Heuristics.Limits.Exceeded.MaxRecursion",
 		Ignored: &v1alpha1.IgnoreMatch{Rule: "known-harmless/php-phar-test-quine", Reason: "PHP test quine", Expires: "2027-06-30"}}}
 	reports.mu.Unlock()
 	if _, out := e.do("GET", "/cluster/shop/replicaset-web-app", "", ""); !strings.Contains(out, "1 entry ignored by rules") || !strings.Contains(out, "known-harmless/php-phar-test-quine until 2027-06-30") || !strings.Contains(out, "row-ignored") {
@@ -332,7 +332,7 @@ func TestClusterReports(t *testing.T) {
 
 	resp, out = e.do("GET", "/api/cluster/reports", "", "")
 	var list []v1alpha1.MalwareReport
-	if err := json.Unmarshal([]byte(out), &list); resp.StatusCode != http.StatusOK || err != nil || len(list) != 3 || list[0].Report.Workload.Name != "miner" {
+	if err := json.Unmarshal([]byte(out), &list); resp.StatusCode != http.StatusOK || err != nil || len(list) != 3 || list[0].Status.Workload.Name != "miner" {
 		t.Errorf("API: %d %v %d reports", resp.StatusCode, err, len(list))
 	}
 }
@@ -341,18 +341,18 @@ func TestClusterHistory(t *testing.T) {
 	reports := &fakeReports{}
 	e := newEnv(t, func(c *Config) { c.Cluster = reports })
 	old := malwareReport("shop", "web-5d8f7c", v1alpha1.StatusClean)
-	old.Report.Workload.Parent = "web"
-	old.Report.ScannedAt = metav1.NewTime(time.Now().Add(-48 * time.Hour).Truncate(time.Second))
+	old.Status.Workload.Parent = "web"
+	old.Status.ScannedAt = metav1.NewTime(time.Now().Add(-48 * time.Hour).Truncate(time.Second))
 	e.s.recordReport(&old, false)
 	e.s.recordReport(&old, false) // seen again after a restart
 
 	// A rollout: the new ReplicaSet runs an infected image, the old one's
 	// report is deleted while the server is down.
 	cur := malwareReport("shop", "web-7c9b4d", v1alpha1.StatusInfected, v1alpha1.Finding{Path: "/usr/bin/xmrig", Signature: "Unix.Coinminer.Xmrig", Status: "present"})
-	cur.Report.Workload.Parent = "web"
-	cur.Report.ScannedAt = metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
+	cur.Status.Workload.Parent = "web"
+	cur.Status.ScannedAt = metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
 	e.s.recordReport(&cur, false)
-	cur.Report.ScannedAt = metav1.NewTime(time.Now().Add(-10 * time.Minute).Truncate(time.Second)) // rescan, still infected
+	cur.Status.ScannedAt = metav1.NewTime(time.Now().Add(-10 * time.Minute).Truncate(time.Second)) // rescan, still infected
 	e.s.recordReport(&cur, false)
 	reports.reports = []v1alpha1.MalwareReport{cur}
 	if err := e.s.recordMissedDeletions(context.Background()); err != nil {
