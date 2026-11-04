@@ -148,12 +148,18 @@ Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
 3. image and chart are signed with cosign (keyless) and get build
    provenance from `actions/attest-build-provenance`;
 4. GoReleaser (`.goreleaser.yaml`) builds the binaries (linux/darwin,
-   amd64/arm64) and creates the GitHub release with the changelog from the
-   Conventional Commits; the binaries get build provenance as well.
+   amd64/arm64) and creates the GitHub release: the section `## vX.Y.Z` of
+   `CHANGELOG.md` (upgrade notes, security fixes) on top, the changelog
+   from the Conventional Commits below; the binaries get build provenance
+   as well.
+
+Write the `CHANGELOG.md` section before tagging: a final release without
+one fails before anything is published. Pre-releases may leave it out.
 
 Image and chart come first, so a release never names an image that does not
 exist. Started by hand (Actions → release → Run workflow), the workflow
-builds everything and publishes nothing: a dry run before tagging. The
+builds everything and publishes nothing: a dry run before tagging, which
+also prints the topmost `CHANGELOG.md` section as the release notes. The
 release build uses the latest patch release of the Go version in `go.mod`.
 
 After the release, set `version` and `appVersion` in

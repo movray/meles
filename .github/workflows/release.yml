@@ -85,6 +85,26 @@ jobs:
           echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/out"
 
+      # The section "## vX.Y.Z" of CHANGELOG.md (upgrade notes, security
+      # fixes) heads the release notes, above the changelog from the
+      # commits. Required for a final release, optional for pre-releases.
+      # The dry run uses the topmost section: what the next tag publishes.
+      - name: Release notes
+        run: |
+          set -eu
+          h="## v$VERSION"
+          [ "$PUBLISH" = true ] || h="$(grep -m1 '^## v' CHANGELOG.md || true)"
+          awk -v h="$h" '$0 == h {f = 1; next} /^## / {f = 0} f' CHANGELOG.md > "$OUT/notes.md"
+          if [ -s "$OUT/notes.md" ]; then
+            echo "NOTES=$OUT/notes.md" >> "$GITHUB_ENV"
+            cat "$OUT/notes.md"
+          elif [ "$PUBLISH" = true ]; then
+            case "$VERSION" in
+              *-*) echo "no section v$VERSION in CHANGELOG.md (pre-release, left out)" ;;
+              *) echo "CHANGELOG.md has no section ## v$VERSION" >&2; exit 1 ;;
+            esac
+          fi
+
       - name: Log in to ghcr.io
         if: env.PUBLISH == 'true'
         env:
@@ -153,10 +173,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -eu
+          header=""
+          [ -n "${NOTES:-}" ] && header="--release-header=$NOTES"
           if [ "$PUBLISH" = true ]; then
-            goreleaser release --clean
+            goreleaser release --clean $header
           else
-            goreleaser release --snapshot --clean
+            goreleaser release --snapshot --clean $header
           fi
 
       - name: Binary provenance
