@@ -187,6 +187,7 @@ verdict of its time; a new rule applies from the next run on.`,
 		},
 	}
 	sf.register(cmd.Flags())
+	sf.registerNetwork(cmd.Flags())
 	cmd.Flags().StringVar(&listen, "listen", ":8080", "HTTP listen address")
 	cmd.Flags().StringVar(&dbPath, "db", "meles.db", "SQLite database file")
 	cmd.Flags().IntVar(&workers, "workers", 1, "images scanned in parallel (each uses --concurrency clamd sessions)")

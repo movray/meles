@@ -336,6 +336,23 @@ released pods to the digest it resolved, through the mirror as well.
 Reason: Docker Hub's limit for anonymous pulls is per IP and shared with
 the kubelet; rescans through a proxy cache do not use it.
 
+The server and the operator pull images that others name: anyone who may
+create a pod, or start a run in the UI. Unchecked, such a reference makes
+meles send requests to services inside the cluster or to the cloud metadata
+endpoint, and the answer would end up in a report or an event (SSRF). So
+`internal/source` checks the address of every connection after the DNS
+lookup, which covers redirects and token realms, too: loopback, link-local
+(`169.254.0.0/16`, `fe80::/10`), unspecified and multicast addresses are
+never used; private addresses (`10/8`, `172.16/12`, `192.168/16`,
+`100.64/10`, `fc00::/7`) only for mirror hosts, the registry of the Harbor
+that asked the adapter, and entries of `--allow-private-registry`
+(`scan.allowPrivateRegistries`). Plain HTTP needs `--insecure-registry`
+(go-containerregistry would otherwise fall back to HTTP for private
+addresses on its own), and of the body of an error response only a
+registry's JSON error or 200 printable characters are kept. Through an
+HTTP(S) proxy meles only reaches the proxy, which has to apply its own
+rules. The CLI is not restricted: whoever runs it chooses the reference.
+
 Rejected alternatives: reading images from the nodes (needs root on every
 node) and scanning the running container filesystem (runtime detection, a
 non-goal). meles does not talk to the kubelet or the CRI; the price is a
@@ -456,6 +473,9 @@ scan.
   UI ignore rules can take findings out of the verdict in any namespace.
   The creator is recorded from oauth2-proxy's headers, which are only
   trustworthy because the server then listens on 127.0.0.1 behind it.
+- Image references from pods and UI runs are untrusted: the server and the
+  operator refuse registries on loopback, link-local and, unless allowed,
+  private addresses (see [Private registries](#private-registries)).
 - The scan gate is no barrier against someone who may update pods in a
   gated namespace: scheduling gates can be removed by anyone with that
   right. It protects against rollouts of infected images, not against

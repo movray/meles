@@ -34,6 +34,16 @@ scan:
   registryCA:
     configMap: ""
     key: ca.crt
+  # The server and the operator pull images that others name (a pod, a
+  # run), so they refuse addresses inside your network: loopback and
+  # link-local (cloud metadata) always, private addresses (10/8, 172.16/12,
+  # 192.168/16, 100.64/10, fc00::/7) unless the registry is listed here.
+  # Mirror hosts are allowed. Entries: host, host:port, *.domain or a
+  # network. Plain HTTP needs --insecure-registry in addition.
+  #   - harbor.example.com
+  #   - "*.dkr.ecr.eu-central-1.amazonaws.com"   # ECR via VPC endpoint
+  #   - 10.0.0.0/8
+  allowPrivateRegistries: []
 
 server:
   enabled: true

@@ -124,6 +124,7 @@ the CVEs and the malware findings, and SBOM requests are passed through.`,
 		},
 	}
 	sf.register(cmd.Flags())
+	sf.registerNetwork(cmd.Flags())
 	fs := cmd.Flags()
 	fs.StringVar(&listen, "listen", ":8080", "HTTP listen address")
 	fs.StringVar(&tokenFile, "token-file", "", "file with the bearer token Harbor sends (scanner registration: Authorization Bearer)")

@@ -337,7 +337,10 @@ func (a *Adapter) scan(ctx context.Context, j *job) (*VulnerabilityReport, error
 	if err != nil {
 		return nil, err
 	}
-	opts := []scan.Option{scan.WithKeychain(staticKeychain{auth})}
+	// Harbor's registry often has a private address; it is the one that
+	// asked for the scan.
+	host, _, _ := strings.Cut(ref, "/")
+	opts := []scan.Option{scan.WithKeychain(staticKeychain{auth}), scan.WithAllowPrivate(host)}
 	if insecure {
 		opts = append(opts, scan.WithInsecure())
 	}

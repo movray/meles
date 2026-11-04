@@ -99,10 +99,9 @@ type Reconciler struct {
 	// engine (an outage of meles); otherwise they wait for clamd.
 	Gate         bool
 	GateFailOpen bool
-	// Insecure allows plain HTTP registries when resolving tags.
-	Insecure bool
-	// Mirrors are asked first when resolving tags, as when scanning.
-	Mirrors []source.Mirror
+	// Source configures resolving tags for the gate (plain HTTP, mirrors,
+	// network restrictions), as when scanning.
+	Source source.Options
 	// Recorder emits the gate's events on held and released pods.
 	Recorder events.EventRecorder
 	// IsLeader reports whether this replica scans, for the status.

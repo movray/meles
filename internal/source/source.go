@@ -113,6 +113,9 @@ type Options struct {
 	Mirrors []Mirror
 	// Logger notes failed mirrors; nil for none.
 	Logger *slog.Logger
+	// Network restricts the addresses meles connects to (operator, server
+	// and Harbor adapter); the zero value restricts nothing (CLI).
+	Network Network
 	// Input reads the image from a local OCI image layout or docker save
 	// archive instead of a registry; the reference then names the image in
 	// it, empty for the only one. Close the Image when done.
@@ -208,6 +211,7 @@ func Resolve(ctx context.Context, ref string, opts Options) (repository, digest 
 	if err != nil {
 		return "", "", fmt.Errorf("parse reference %q: %w", ref, err)
 	}
+	ctx = withPolicy(ctx, opts)
 	repository = r.Context().Name()
 	if reg := r.Context().RegistryStr(); reg == name.DefaultRegistry {
 		// As the kubelet reports it.
@@ -220,17 +224,21 @@ func Resolve(ctx context.Context, ref string, opts Options) (repository, digest 
 	if kc == nil {
 		kc = authn.DefaultKeychain
 	}
+	ropts := []remote.Option{remote.WithContext(ctx), remote.WithAuthFromKeychain(kc), remote.WithTransport(sharedTransport)}
 	if len(opts.Mirrors) > 0 {
-		d, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+		d, err := get(ctx, r, nopts, opts, ropts...)
 		if err != nil {
 			return repository, "", fmt.Errorf("resolve %s: %w", ref, err)
 		}
 		return repository, d.Digest.String(), nil
 	}
-	desc, err := remote.Head(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+	desc, err := remote.Head(r, ropts...)
 	if err != nil {
+		if errors.Is(err, errBlocked) {
+			return repository, "", fmt.Errorf("resolve %s: %w", ref, err)
+		}
 		// Some registries answer HEAD poorly.
-		d, gerr := remote.Get(r, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc))
+		d, gerr := remote.Get(r, ropts...)
 		if gerr != nil {
 			return repository, "", fmt.Errorf("resolve %s: %w", ref, gerr)
 		}
@@ -260,7 +268,8 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 	}
 	// Layers are read through this transport too: it resumes downloads that
 	// break off while meles waits for clamd.
-	rt := newResumingTransport(remote.DefaultTransport, opts.Logger)
+	ctx = withPolicy(ctx, opts)
+	rt := newResumingTransport(sharedTransport, opts.Logger)
 	desc, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc), remote.WithTransport(rt))
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", ref, err)

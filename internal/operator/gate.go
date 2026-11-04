@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/movray/meles/api/v1alpha1"
 	"github.com/movray/meles/internal/source"
 )
@@ -136,7 +137,7 @@ func (r *Reconciler) reconcileGated(ctx context.Context, pod *corev1.Pod, owner 
 func (r *Reconciler) resolveContainer(ctx context.Context, ref string, auth pullAuth) container {
 	rctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
-	repo, digest, err := source.Resolve(rctx, ref, source.Options{Keychain: auth.keychain, Insecure: r.Insecure, Mirrors: r.Mirrors, Logger: r.log()})
+	repo, digest, err := source.Resolve(rctx, ref, r.resolveOptions(auth.keychain))
 	if err != nil {
 		return container{img: image{repository: repo, reference: ref}, unpullable: r.authHint(err, auth), gated: true}
 	}
@@ -215,4 +216,11 @@ func (w *GateWebhook) Handle(_ context.Context, req admission.Request) admission
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, raw)
+}
+
+// resolveOptions are the options for resolving a tag with kc.
+func (r *Reconciler) resolveOptions(kc authn.Keychain) source.Options {
+	o := r.Source
+	o.Keychain, o.Logger, o.Platforms, o.Input = kc, r.log(), source.PlatformFilter{}, ""
+	return o
 }

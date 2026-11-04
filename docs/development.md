@@ -63,9 +63,13 @@ in-memory registry. To try the UI with them:
 
 ```sh
 go run ./hack/testregistry &      # EICAR test images on 127.0.0.1:5055
-bin/meles server --insecure-registry --db demo.db
+bin/meles server --insecure-registry --allow-any-registry-address --db demo.db
 # then scan 127.0.0.1:5055/selftest/eicar-whiteout:latest
 ```
+
+The server and the operator refuse registries on loopback and private
+addresses (see [Security model](architecture.md#security-model));
+`--allow-any-registry-address` lifts that for a local test like this one.
 
 ## Repository layout
 

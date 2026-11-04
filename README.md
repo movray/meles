@@ -465,6 +465,7 @@ Important values (see `charts/meles/values.yaml`):
 | `server.registryAuthSecret` | `""` | `kubernetes.io/dockerconfigjson` secret for private images to scan |
 | `scan.registryMirrors` | `[]` | mirrors the server and the operator pull from first, e.g. `docker.io=harbor.example.com/dockerhub` (see `--registry-mirror`) |
 | `scan.registryCA.configMap` | `""` | ConfigMap with an additional CA (`key`, default `ca.crt`) for registries and mirrors, e.g. a private CA of Harbor |
+| `scan.allowPrivateRegistries` | `[]` | registries on private addresses the server and the operator may pull from: host, `host:port`, `*.domain` or a network such as `10.0.0.0/8` (see `--allow-private-registry`); mirror hosts are allowed, loopback and link-local never |
 | `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
 | `clamd.auth.enabled` | `true` | TLS + token in front of clamd (see below) |
 | `clamd.auth.existingSecret` | `""` | secret with key `token`; empty: generated and kept |

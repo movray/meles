@@ -67,7 +67,7 @@ func (e *env) stillGated(t *testing.T, ns, podName, reportName, status string) {
 }
 
 func TestScanGate(t *testing.T) {
-	e := setup(t, func(e *env) { e.r.Gate = true; e.r.Insecure = true })
+	e := setup(t, func(e *env) { e.r.Gate = true; e.r.Source.Insecure = true })
 	ns := "shop"
 	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
 
@@ -100,7 +100,7 @@ func TestScanGate(t *testing.T) {
 
 // Skipped files hold a pod in enforce mode only.
 func TestScanGateIncomplete(t *testing.T) {
-	e := setup(t, func(e *env) { e.r.Gate = true; e.r.Insecure = true; e.engine.MaxSize = 1 })
+	e := setup(t, func(e *env) { e.r.Gate = true; e.r.Source.Insecure = true; e.engine.MaxSize = 1 })
 	ns := "shop"
 	e.create(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
 	e.gatedPod(t, ns, "strict", "clean", v1alpha1.GateEnforce)
@@ -115,7 +115,7 @@ func TestScanGateEngineDown(t *testing.T) {
 	for _, failOpen := range []bool{true, false} {
 		t.Run(map[bool]string{true: "fail-open", false: "fail-closed"}[failOpen], func(t *testing.T) {
 			e := setup(t, func(e *env) {
-				e.r.Gate, e.r.GateFailOpen, e.r.Insecure = true, failOpen, true
+				e.r.Gate, e.r.GateFailOpen, e.r.Source.Insecure = true, failOpen, true
 				e.engine.Err = errors.New("clamd: connection refused")
 			})
 			ns := "shop"

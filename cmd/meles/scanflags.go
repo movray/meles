@@ -27,6 +27,11 @@ type scanFlags struct {
 	maxFiles     int
 	insecure     bool
 	mirrors      []string
+	// restrict and allowPrivate are only set by commands that scan
+	// references from others (operator, server, Harbor adapter).
+	restrict     bool
+	allowPrivate []string
+	anyAddress   bool
 }
 
 func (f *scanFlags) register(fs *pflag.FlagSet) {
@@ -42,6 +47,14 @@ func (f *scanFlags) register(fs *pflag.FlagSet) {
 	fs.IntVar(&f.maxFiles, "max-files", 500000, "fail on layers with more entries than this")
 	fs.BoolVar(&f.insecure, "insecure-registry", false, "allow plain HTTP registries")
 	fs.StringSliceVar(&f.mirrors, "registry-mirror", nil, "pull a registry's images from a mirror first, e.g. docker.io=harbor.example.com/dockerhub (a Harbor proxy cache project); repeatable or comma-separated; the registry itself is the fallback")
+}
+
+// registerNetwork restricts the addresses the command connects to for
+// registries, see source.Network.
+func (f *scanFlags) registerNetwork(fs *pflag.FlagSet) {
+	f.restrict = true
+	fs.StringSliceVar(&f.allowPrivate, "allow-private-registry", nil, "registries that may use private addresses (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7): host, host:port, *.domain or a network such as 10.0.0.0/8; repeatable or comma-separated. Mirror hosts are allowed; loopback and link-local addresses never")
+	fs.BoolVar(&f.anyAddress, "allow-any-registry-address", false, "for local development only: connect to any address for registries, loopback included, as the CLI does")
 }
 
 func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
@@ -67,6 +80,10 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 		}
 		mirrors = append(mirrors, mm)
 	}
+	allow, err := source.ParseAllowPrivate(f.allowPrivate)
+	if err != nil {
+		return nil, fmt.Errorf("--allow-private-registry: %w", err)
+	}
 	if f.concurrency < 1 {
 		return nil, fmt.Errorf("--concurrency must be at least 1")
 	}
@@ -81,8 +98,11 @@ func (f *scanFlags) scanner(cache *scan.Cache) (*scan.Scanner, error) {
 		Limits:      extract.Limits{MaxFileSize: int64(f.maxFileSize), MaxLayerSize: int64(f.maxLayerSize), MaxFiles: f.maxFiles},
 		Concurrency: f.concurrency,
 		Cache:       cache,
-		Source:      source.Options{Insecure: f.insecure, Mirrors: mirrors, Logger: slog.Default()},
-		Logger:      slog.Default(),
+		Source: source.Options{
+			Insecure: f.insecure, Mirrors: mirrors, Logger: slog.Default(),
+			Network: source.Network{Restrict: f.restrict && !f.anyAddress, AllowPrivate: allow},
+		},
+		Logger: slog.Default(),
 	}, nil
 }
 

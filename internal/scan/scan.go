@@ -134,6 +134,14 @@ func WithInsecure() Option {
 	return func(o *source.Options) { o.Insecure = true }
 }
 
+// WithAllowPrivate lets this scan use private addresses for host (see
+// source.Network), e.g. the registry of the Harbor that asked for it.
+func WithAllowPrivate(host string) Option {
+	return func(o *source.Options) {
+		o.Network.AllowPrivate = append(append([]string(nil), o.Network.AllowPrivate...), host)
+	}
+}
+
 // Scan scans the platforms of ref selected by platforms. Progress is
 // optional. An error means the image was not fully scanned; it must never be
 // treated as clean.

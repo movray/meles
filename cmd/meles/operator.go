@@ -127,7 +127,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 				Platforms: platforms, Workers: workers,
 				APIReader: mgr.GetAPIReader(), PullSecretRole: pullRole, ServiceAccount: operatorSA,
 				ScanTimeout: scanTimeout, RetryAfter: retryAfter, RetryIncompleteAfter: retryIncompl, RescanInterval: rescan, Logger: log,
-				Gate: gate, GateFailOpen: gateFailOpen, Insecure: sf.insecure, Mirrors: sc.Source.Mirrors,
+				Gate: gate, GateFailOpen: gateFailOpen, Source: sc.Source,
 				IsLeader: func() bool {
 					select {
 					case <-mgr.Elected():
@@ -185,6 +185,7 @@ It uses the kubeconfig from KUBECONFIG or, in a pod, its service account.`,
 		},
 	}
 	sf.register(cmd.Flags())
+	sf.registerNetwork(cmd.Flags())
 	cmd.Flags().StringVar(&platforms, "platform", operator.PlatformsNodes, "platforms to scan: nodes (architectures of the cluster's nodes), all, or a list such as linux/amd64,linux/arm64")
 	cmd.Flags().IntVar(&workers, "workers", 2, "images scanned in parallel, apart from reconciling pods; each scan uses --concurrency clamd sessions")
 	cmd.Flags().DurationVar(&scanTimeout, "scan-timeout", 30*time.Minute, "maximum duration of a single image scan")

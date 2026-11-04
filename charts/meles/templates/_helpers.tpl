@@ -91,6 +91,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- with .Values.scan.registryMirrors }}
 - {name: MELES_REGISTRY_MIRROR, value: {{ join "," . | quote }}}
 {{- end }}
+{{- with .Values.scan.allowPrivateRegistries }}
+- {name: MELES_ALLOW_PRIVATE_REGISTRY, value: {{ join "," . | quote }}}
+{{- end }}
 {{- if .Values.scan.registryCA.configMap }}
 # Go reads the system roots and every file in SSL_CERT_DIR.
 - {name: SSL_CERT_DIR, value: /registry-ca}
