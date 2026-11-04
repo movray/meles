@@ -65,9 +65,23 @@ type Day struct {
 // Total returns the number of runs of the day.
 func (d Day) Total() int { return d.Clean + d.Infected + d.Errors }
 
+// MaxDays bounds the days of Daily and ClusterDaily: each day is one entry
+// allocated up front.
+const MaxDays = 366
+
+func checkDays(days int) error {
+	if days < 1 || days > MaxDays {
+		return fmt.Errorf("days %d: want 1 to %d", days, MaxDays)
+	}
+	return nil
+}
+
 // Daily returns one entry per day for the last days days (oldest first),
 // grouped by the day the run finished in loc.
 func (s *Store) Daily(ctx context.Context, days int, loc *time.Location) ([]Day, error) {
+	if err := checkDays(days); err != nil {
+		return nil, err
+	}
 	now := time.Now().In(loc)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	first := today.AddDate(0, 0, -(days - 1))

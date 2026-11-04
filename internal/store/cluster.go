@@ -251,6 +251,9 @@ func (d ClusterDay) Total() int { return d.Clean + d.Infected + d.Incomplete + d
 // last days days (oldest first) in loc. Days before the history began count
 // nothing.
 func (s *Store) ClusterDaily(ctx context.Context, cluster string, days int, loc *time.Location) ([]ClusterDay, error) {
+	if err := checkDays(days); err != nil {
+		return nil, err
+	}
 	now := time.Now().In(loc)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	first := today.AddDate(0, 0, -(days - 1))

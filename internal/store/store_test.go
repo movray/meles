@@ -242,3 +242,24 @@ func TestClusterDaily(t *testing.T) {
 		}
 	}
 }
+
+func TestDailyBounds(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	for _, days := range []int{-1, 0, MaxDays + 1, 1 << 40} {
+		if _, err := s.Daily(ctx, days, time.UTC); err == nil {
+			t.Errorf("Daily(%d): no error", days)
+		}
+		if _, err := s.ClusterDaily(ctx, "", days, time.UTC); err == nil {
+			t.Errorf("ClusterDaily(%d): no error", days)
+		}
+	}
+	for _, days := range []int{1, MaxDays} {
+		if d, err := s.Daily(ctx, days, time.UTC); err != nil || len(d) != days {
+			t.Errorf("Daily(%d): %d entries, %v", days, len(d), err)
+		}
+		if d, err := s.ClusterDaily(ctx, "", days, time.UTC); err != nil || len(d) != days {
+			t.Errorf("ClusterDaily(%d): %d entries, %v", days, len(d), err)
+		}
+	}
+}
