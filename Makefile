@@ -9,8 +9,10 @@ CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 ENVTEST_K8S    ?= 1.36.x
 SETUP_ENVTEST  ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2
 PROMTOOL       ?= promtool
+# Keep in line with GOVULNCHECK_VERSION in .github/workflows/release.yml.
+GOVULNCHECK    ?= go run golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
-.PHONY: build test test-integration test-envtest test-rules generate lint run-server selftest image image-tarball clean
+.PHONY: build test test-integration test-envtest test-rules generate lint vuln run-server selftest image image-tarball clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/meles ./cmd/meles
@@ -40,6 +42,11 @@ generate:
 lint:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "gofmt needed"; exit 1; }
 	go vet ./...
+
+# Known vulnerabilities (Go vulnerability database) in the code paths meles
+# reaches, in its dependencies and in the standard library of the Go in PATH.
+vuln:
+	$(GOVULNCHECK) ./...
 
 selftest: build
 	bin/meles selftest --clamd $(CLAMD)
