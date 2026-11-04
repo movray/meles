@@ -735,7 +735,16 @@ rollout of an infected version leaves the old pods running. An image that
 was scanned before is released at once; rescans never hold a pod.
 
 - A workload opts out with the annotation `meles.io/gate: skip` on its pod
-  template.
+  template, where an administrator allows it:
+  `kubectl label namespace shop meles.io/gate-skip=allowed`.
+- Members of a gated namespace cannot bypass the gate: a
+  `ValidatingAdmissionPolicy` (`operator.gate.protect`, on with the gate)
+  refuses `meles.io/gate: skip` without that label, `spec.nodeName` on new
+  pods, removing the scheduling gate, `meles.io/gate-mode: audit` outside
+  `audit` namespaces and changing the image of a pod; only the operator may
+  do the last three. It runs in the API server and blocks nothing more
+  while meles is down. To see first what it would refuse:
+  `operator.gate.protect.validationActions: [Warn]` (or `[Audit]`).
 - `kube-system`, the release namespace and `operator.gate.excludeNamespaces`
   are never gated. Pods that exist already are not affected.
 - If clamd fails, held pods are released with a warning event

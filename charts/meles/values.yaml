@@ -327,11 +327,23 @@ operator:
   # Clean) or meles.io/gate=audit (held only if an image is Infected); the
   # operator scans, pins the pods to the scanned digests and releases them.
   # It gets patch on pods and creates events in all namespaces. A workload
-  # opts out with the annotation meles.io/gate: skip on its pod template.
-  # kube-system and the release namespace are never gated. Needs Kubernetes
-  # 1.30 or later.
+  # opts out with the annotation meles.io/gate: skip on its pod template,
+  # with protect only where the namespace is labelled
+  # meles.io/gate-skip=allowed. kube-system and the release namespace are
+  # never gated. Needs Kubernetes 1.30 or later.
   gate:
     enabled: false
+    # A ValidatingAdmissionPolicy against members of gated namespaces who
+    # bypass the gate: it refuses meles.io/gate: skip without the namespace
+    # label, spec.nodeName on new pods (except from the kubelet), removing
+    # the scheduling gate, gate-mode audit outside audit namespaces and
+    # image changes on pods, unless the operator does it. Runs in the API
+    # server, nothing extra is blocked while meles is down.
+    # validationActions: [Deny], or [Warn] / [Audit] to see first what it
+    # would refuse.
+    protect:
+      enabled: true
+      validationActions: [Deny]
     # Release held pods also when the scan failed in clamd (an outage of
     # meles), with a warning event. false: they wait until clamd is back.
     failOpen: true

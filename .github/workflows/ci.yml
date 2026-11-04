@@ -24,8 +24,21 @@ jobs:
           go generate ./internal/yararules
           git diff --exit-code internal/yararules
       - run: make test
+      # TestGateProtect renders the chart's admission policy with helm.
+      - name: helm
+        env:
+          # Keep in line with the rules job.
+          HELM_VERSION: v3.19.0
+          HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
+        run: |
+          set -eu
+          mkdir -p /tmp/tools && cd /tmp/tools
+          curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors \
+            -o helm.tgz "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
+          echo "$HELM_SHA256  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz --strip-components=1 linux-amd64/helm
       # Operator tests against a real API server and etcd (downloaded binaries).
-      - run: make test-envtest
+      - run: PATH="/tmp/tools:$PATH" make test-envtest
 
   # The chart's Prometheus alerts with promtool, the YARA rules with YARA-X
   # (a later engine candidate: rules must stay compatible). helm, promtool
@@ -35,6 +48,7 @@ jobs:
     container:
       image: docker.io/library/golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
     env:
+      # Keep in line with the test job.
       HELM_VERSION: v3.19.0
       HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
       PROMETHEUS_VERSION: 3.4.2

@@ -1,0 +1,106 @@
+{{- if and .Values.operator.enabled .Values.operator.gate.enabled .Values.operator.gate.protect.enabled }}
+{{- $fullname := include "meles.fullname" . }}
+{{- $operator := printf "system:serviceaccount:%s:%s-operator" .Release.Namespace $fullname }}
+# Protects the scan gate against members of a gated namespace: without it,
+# anyone who may create or patch pods there can let an image run unscanned.
+# Runs in the API server (no call to meles): it only checks requests and
+# blocks nothing more while meles is down.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-gate-protect
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      # Only the pod itself: status, binding and ephemeral containers are
+      # subresources (ephemeral containers need pods/ephemeralcontainers,
+      # which the edit role does not have).
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods]
+        operations: [CREATE, UPDATE]
+  variables:
+    - name: operator
+      expression: request.userInfo.username == {{ $operator | quote }}
+    - name: update
+      expression: request.operation == 'UPDATE'
+    - name: nsMode
+      expression: namespaceObject.metadata.?labels[?'meles.io/gate'].orValue('')
+    - name: mode
+      expression: object.metadata.?annotations[?'meles.io/gate-mode'].orValue('')
+    - name: oldMode
+      expression: "variables.update ? oldObject.metadata.?annotations[?'meles.io/gate-mode'].orValue('') : ''"
+    # A workload may opt out only where an administrator allows it: the
+    # members of a namespace cannot change its labels.
+    - name: skip
+      expression: >-
+        object.metadata.?annotations[?'meles.io/gate'].orValue('') == 'skip' &&
+        namespaceObject.metadata.?labels[?'meles.io/gate-skip'].orValue('') == 'allowed'
+    - name: gated
+      expression: object.spec.?schedulingGates.orValue([]).exists(g, g.name == 'meles.io/scan')
+    - name: wasGated
+      expression: variables.update && oldObject.spec.?schedulingGates.orValue([]).exists(g, g.name == 'meles.io/scan')
+    - name: imagesKept
+      expression: >-
+        !variables.update || (
+        object.spec.containers.all(c, oldObject.spec.containers.exists(o, o.name == c.name && o.image == c.image)) &&
+        object.spec.?initContainers.orValue([]).all(c, oldObject.spec.?initContainers.orValue([]).exists(o, o.name == c.name && o.image == c.image)))
+  validations:
+    - expression: >-
+        request.operation != 'CREATE' || variables.skip ||
+        object.metadata.?annotations[?'meles.io/gate'].orValue('') != 'skip'
+      reason: Forbidden
+      message: >-
+        the annotation meles.io/gate: skip needs the label meles.io/gate-skip=allowed
+        on the namespace (set by an administrator)
+    # Scheduling gates are refused on a pod bound to a node, so the webhook
+    # cannot hold it. The kubelet creates such pods for static pods.
+    - expression: >-
+        request.operation != 'CREATE' || variables.skip ||
+        object.spec.?nodeName.orValue('') == '' || 'system:nodes' in request.userInfo.groups
+      reason: Forbidden
+      message: spec.nodeName cannot be set on new pods in a namespace with the meles scan gate
+    - expression: "!variables.wasGated || variables.gated || variables.operator"
+      reason: Forbidden
+      message: only the meles operator removes the scheduling gate meles.io/scan
+    # audit releases what enforce holds (Incomplete, image errors): only in
+    # audit namespaces. Without the annotation, enforce applies. Covers pods
+    # created with the gate while the webhook is down (failurePolicy Ignore).
+    - expression: >-
+        variables.mode != 'audit' || variables.nsMode == 'audit' ||
+        variables.oldMode == 'audit' || variables.operator
+      reason: Forbidden
+      message: meles.io/gate-mode audit is only allowed in namespaces labelled meles.io/gate=audit
+    # The operator pins the images to the scanned digests when it releases
+    # a pod; any other change would run an image that was not scanned.
+    - expression: variables.imagesKept || variables.skip || variables.operator
+      reason: Forbidden
+      message: >-
+        images of pods in a namespace with the meles scan gate cannot be changed;
+        change the workload, its new pods are scanned
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-gate-protect
+  labels:
+    {{- include "meles.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  policyName: {{ $fullname }}-gate-protect
+  validationActions: {{ .Values.operator.gate.protect.validationActions | toJson }}
+  # The namespaces of the webhook (operator-gate.yaml).
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: meles.io/gate
+          operator: In
+          values: [enforce, audit]
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: {{ concat (list "kube-system" .Release.Namespace) .Values.operator.gate.excludeNamespaces | toJson }}
+{{- end }}

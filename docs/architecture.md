@@ -392,7 +392,9 @@ change pods. Turned on by the administrator (`operator.gate.enabled`,
   annotation `meles.io/gate-mode`, so the operator needs no access to
   namespaces. Never in `kube-system` or the namespace of meles (clamd would
   wait for its own scan). Pods with the annotation `meles.io/gate: skip`
-  and pods bound to a node already (static pods) pass unchanged.
+  and pods bound to a node already (static pods) pass unchanged. The mode
+  is set also on a pod created with the gate already: it comes from the
+  namespace, never from the creator of the pod.
 - The operator resolves the tags itself (a gated pod has no `imageID` yet,
   `source.Resolve`, with the pod's pull secrets), requests the scans with
   the highest priority and writes the reports as usual. In one patch with
@@ -416,6 +418,24 @@ change pods. Turned on by the administrator (`operator.gate.enabled`,
   scan moves up when a gated pod needs it.
 - The webhook runs in every operator replica, scanning only on the leader;
   the chart runs two replicas while the gate is on.
+
+Protection (`operator.gate.protect`, on with the gate): a
+`ValidatingAdmissionPolicy`, bound to the same namespaces as the webhook,
+closes the ways a namespace member could let an image run unscanned:
+
+| Bypass | Refused |
+|---|---|
+| `meles.io/gate: skip` | unless the namespace has `meles.io/gate-skip=allowed` (members cannot label namespaces) |
+| `spec.nodeName` on a new pod (gates are refused on bound pods) | unless the kubelet creates it (`system:nodes`, mirror pods) |
+| removing the scheduling gate | unless the operator does it |
+| `meles.io/gate-mode: audit` (releases `Incomplete`) | outside `audit` namespaces, unless the operator does it; also covers pods created with the gate while the webhook was down |
+| changing the image of a pod after its release | unless the operator does it (pinning at release) |
+
+Ephemeral containers (`kubectl debug`) stay possible: they are a
+subresource that needs `pods/ephemeralcontainers`, which `edit` does not
+have. The policy runs in the API server: it only checks requests, so an
+outage of meles blocks nothing more. `validationActions` `[Warn]` or
+`[Audit]` show what it would refuse before it does.
 
 Why gate instead of reject: a webhook may take at most 30 seconds, a scan
 takes minutes, and rejected pods cause retry loops in the ReplicaSet
@@ -487,10 +507,11 @@ scan.
 - Image references from pods and UI runs are untrusted: the server and the
   operator refuse registries on loopback, link-local and, unless allowed,
   private addresses (see [Private registries](#private-registries)).
-- The scan gate is no barrier against someone who may update pods in a
-  gated namespace: scheduling gates can be removed by anyone with that
-  right. It protects against rollouts of infected images, not against
-  namespace members bypassing it on purpose.
+- The scan gate holds also against members of a gated namespace who may
+  create and update pods there (`edit`), with `operator.gate.protect` (on
+  by default with the gate; see [Scan gate](#scan-gate)). It does not hold
+  against someone who may change the namespace's labels, the webhook or
+  the policy, or create ephemeral containers: cluster administrators.
 - A full review (permissions, pull secrets, clamd's attack surface, network
   paths, tokens, supply chain of the images) is planned before the release.
 
