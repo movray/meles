@@ -190,8 +190,12 @@ func RegisterGateWebhooks(mgr ctrl.Manager) {
 	}
 }
 
-// Handle adds the gate unless the pod opts out, is bound to a node already
-// (scheduling gates are refused then, e.g. static pods) or carries it.
+// Handle adds the gate unless the pod opts out or is bound to a node already
+// (scheduling gates are refused then, e.g. static pods). It sets the mode of
+// the namespace also on a pod that carries the gate already: the mode must
+// come from the namespace, not from whoever created the pod (a pod created
+// with the gate and gate-mode audit would otherwise be held only in audit
+// mode in an enforce namespace).
 func (w *GateWebhook) Handle(_ context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -203,10 +207,12 @@ func (w *GateWebhook) Handle(_ context.Context, req admission.Request) admission
 	switch {
 	case pod.Annotations[v1alpha1.AnnotationGate] == v1alpha1.GateSkip:
 		return admission.Allowed("opted out of the meles scan gate")
-	case pod.Spec.NodeName != "", gated(&pod):
+	case pod.Spec.NodeName != "":
 		return admission.Allowed("")
 	}
-	pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: v1alpha1.SchedulingGateScan})
+	if !gated(&pod) {
+		pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: v1alpha1.SchedulingGateScan})
+	}
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}

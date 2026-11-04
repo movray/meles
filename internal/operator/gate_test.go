@@ -142,18 +142,25 @@ func TestScanGateEngineDown(t *testing.T) {
 func TestGateWebhook(t *testing.T) {
 	scheme := runtime.NewScheme()
 	clientgoscheme.AddToScheme(scheme)
-	w := &GateWebhook{Mode: v1alpha1.GateAudit, Decoder: admission.NewDecoder(scheme)}
+	w := &GateWebhook{Mode: v1alpha1.GateEnforce, Decoder: admission.NewDecoder(scheme)}
+	ownGate := []corev1.PodSchedulingGate{{Name: v1alpha1.SchedulingGateScan}}
+	auditMode := map[string]string{v1alpha1.AnnotationGateMode: v1alpha1.GateAudit}
 	tests := []struct {
-		name  string
-		pod   corev1.Pod
-		op    admissionv1.Operation
-		gated bool
+		name     string
+		pod      corev1.Pod
+		op       admissionv1.Operation
+		gated    bool // patched
+		wantGate bool // the patch adds the gate
 	}{
-		{"new pod", corev1.Pod{}, admissionv1.Create, true},
-		{"opted out", corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{v1alpha1.AnnotationGate: v1alpha1.GateSkip}}}, admissionv1.Create, false},
-		{"bound to a node", corev1.Pod{Spec: corev1.PodSpec{NodeName: "n1"}}, admissionv1.Create, false},
-		{"already gated", corev1.Pod{Spec: corev1.PodSpec{SchedulingGates: []corev1.PodSchedulingGate{{Name: v1alpha1.SchedulingGateScan}}}}, admissionv1.Create, false},
-		{"update", corev1.Pod{}, admissionv1.Update, false},
+		{"new pod", corev1.Pod{}, admissionv1.Create, true, true},
+		{"opted out", corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{v1alpha1.AnnotationGate: v1alpha1.GateSkip}}}, admissionv1.Create, false, false},
+		{"bound to a node", corev1.Pod{Spec: corev1.PodSpec{NodeName: "n1"}}, admissionv1.Create, false, false},
+		{"mode set by the creator", corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: auditMode}}, admissionv1.Create, true, true},
+		// Created with the gate and audit mode in an enforce namespace: the
+		// mode is corrected, the gate not added twice.
+		{"already gated, other mode", corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: auditMode}, Spec: corev1.PodSpec{SchedulingGates: ownGate}}, admissionv1.Create, true, false},
+		{"already gated", corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{v1alpha1.AnnotationGateMode: v1alpha1.GateEnforce}}, Spec: corev1.PodSpec{SchedulingGates: ownGate}}, admissionv1.Create, false, false},
+		{"update", corev1.Pod{}, admissionv1.Update, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,9 +182,9 @@ func TestGateWebhook(t *testing.T) {
 			for _, p := range resp.Patches {
 				b, _ := json.Marshal(p.Value)
 				gate = gate || strings.Contains(string(b), v1alpha1.SchedulingGateScan)
-				mode = mode || strings.Contains(p.Path, "annotations") && strings.Contains(string(b), v1alpha1.GateAudit)
+				mode = mode || strings.Contains(p.Path, "annotations") && strings.Contains(string(b), v1alpha1.GateEnforce)
 			}
-			if !gate || !mode {
+			if gate != tt.wantGate || !mode {
 				t.Errorf("patches = %+v", resp.Patches)
 			}
 		})
