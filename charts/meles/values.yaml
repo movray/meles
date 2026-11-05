@@ -126,6 +126,10 @@ server:
     resources:
       requests: {cpu: 10m, memory: 32Mi}
       limits: {memory: 128Mi}
+  # httpRoute and ingress need server.oauth2Proxy, because meles has no login
+  # of its own. Set this if another proxy in front of the UI handles the login
+  # or the UI stays on an internal network.
+  allowUnauthenticated: false
   httpRoute:
     enabled: false
     # e.g. [{name: gateway, namespace: gateway-system}]

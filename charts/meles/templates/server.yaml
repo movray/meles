@@ -262,6 +262,9 @@ spec:
     app.kubernetes.io/component: server
   ports:
     - {name: http, port: {{ .Values.server.service.port }}, targetPort: http}
+{{- if and (or .Values.server.httpRoute.enabled .Values.server.ingress.enabled) (not .Values.server.oauth2Proxy.enabled) (not .Values.server.allowUnauthenticated) }}
+{{- fail "server.ingress and server.httpRoute expose the web UI, and meles has no login of its own: anyone who reaches it can start scans and read all reports. Enable server.oauth2Proxy, or set server.allowUnauthenticated=true if another proxy in front of the UI handles the login or the UI stays on an internal network" }}
+{{- end }}
 {{- if .Values.server.httpRoute.enabled }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
