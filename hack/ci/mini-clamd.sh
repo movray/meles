@@ -27,4 +27,6 @@ LogTime yes
 StreamMaxLength 768M
 MaxFileSize 768M
 MaxScanSize 1024M
+# As in the chart: a file above a limit must count as skipped, not as clean.
+AlertExceedsMax yes
 EOF
