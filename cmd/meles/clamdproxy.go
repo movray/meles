@@ -27,11 +27,15 @@ close the connection. Let clamd listen only on 127.0.0.1 or a Unix socket.
 Clients connect with --clamd tls://host:port and MELES_CLAMD_TOKEN.
 
 With --rules-dir, VERSION replies carry a hash of the YARA rules clamd loads
-(ClamAV 1.4.6/28164+rules.<hash>/...).`,
+(ClamAV 1.4.6/28164+rules.<hash>/...); --config-hash adds +config.<hash> the
+same way. Results are rescanned when one of them changes.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if p.CertFile == "" || p.KeyFile == "" || p.TokenFile == "" {
 				return fmt.Errorf("--tls-cert, --tls-key and --token-file are required")
+			}
+			if !clamdproxy.ValidConfigHash(p.ConfigHash) {
+				return fmt.Errorf("--config-hash %q: want lower-case hexadecimal", p.ConfigHash)
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
@@ -53,5 +57,6 @@ With --rules-dir, VERSION replies carry a hash of the YARA rules clamd loads
 	fs.DurationVar(&p.AuthTimeout, "auth-timeout", 10*time.Second, "time for TLS handshake and authentication")
 	fs.IntVar(&p.MaxConns, "max-connections", 100, "concurrent client connections (0 = no limit)")
 	fs.StringVar(&p.RulesDir, "rules-dir", "", "clamd's database directory: VERSION replies get a hash of the YARA rules in it, so that changed rules trigger rescans")
+	fs.StringVar(&p.ConfigHash, "config-hash", "", "hash of the clamd options that change verdicts: goes into VERSION replies, so that a changed option triggers rescans")
 	return cmd
 }

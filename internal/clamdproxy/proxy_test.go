@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -298,6 +299,43 @@ func TestClientRefusesTokenWithoutTLS(t *testing.T) {
 	c.Token = "secret"
 	if _, err := c.Version(context.Background()); err == nil || !strings.Contains(err.Error(), "tls://") {
 		t.Errorf("err = %v, want refusal to send the token without TLS", err)
+	}
+}
+
+func TestProxyVersionWithConfigHash(t *testing.T) {
+	rules := t.TempDir()
+	os.WriteFile(filepath.Join(rules, "meles.yar"), []byte("rule a { condition: true }"), 0o644)
+	tests := []struct {
+		name, rulesDir, config string
+		want                   *regexp.Regexp
+	}{
+		{"config only", "", "abc123", regexp.MustCompile(`^28159\+config\.abc123$`)},
+		{"rules and config", rules, "abc123", regexp.MustCompile(`^28159\+rules\.[0-9a-f]{12}\+config\.abc123$`)},
+		{"default options", rules, "", regexp.MustCompile(`^28159\+rules\.[0-9a-f]{12}$`)},
+		{"neither", "", "", regexp.MustCompile(`^28159$`)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := setup(t, func(p *Proxy) { p.RulesDir, p.ConfigHash = tt.rulesDir, tt.config })
+			v, err := e.client(t, "secret-1").Version(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tt.want.MatchString(v.Signatures) {
+				t.Errorf("signatures = %q, want %s", v.Signatures, tt.want)
+			}
+			if !strings.HasSuffix(v.Raw, "/Tue Oct 20 08:24:12 2026") {
+				t.Errorf("raw = %q", v.Raw)
+			}
+		})
+	}
+}
+
+func TestValidConfigHash(t *testing.T) {
+	for s, want := range map[string]bool{"": true, "abc123": true, "ABC": false, "a/b": false, "a b": false, "a\x00": false} {
+		if got := ValidConfigHash(s); got != want {
+			t.Errorf("ValidConfigHash(%q) = %v, want %v", s, got, want)
+		}
 	}
 }
 

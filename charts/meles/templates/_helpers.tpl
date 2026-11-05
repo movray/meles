@@ -118,6 +118,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- /*
+Hash of the clamd options that change verdicts, for the VERSION reply: results
+are rescanned when it changes. Empty for the default options, so that those
+keep the plain version. Limits are left out on purpose: what they stop is
+reported as skipped and retried anyway. extraConfig counts as a whole, since
+meles cannot tell what it contains.
+*/}}
+{{- define "meles.clamdConfigHash" -}}
+{{- if or .Values.clamd.detectPUA .Values.clamd.extraConfig }}
+{{- dict "detectPUA" .Values.clamd.detectPUA "extraConfig" (.Values.clamd.extraConfig | trim) | toJson | sha256sum | trunc 12 }}
+{{- end }}
+{{- end }}
+
 {{- define "meles.clamdAddress" -}}
 {{- if include "meles.clamdAuth" . }}
 {{- printf "tls://%s-clamd:3310" (include "meles.fullname" .) }}

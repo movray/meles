@@ -212,7 +212,8 @@ clamd:
   # Alpine .apk and APKINDEX, PUA.Win.Trojan.Xored-1 on minified
   # JavaScript).
   detectPUA: false
-  # Appended to clamd.conf.
+  # Appended to clamd.conf. Changing it or detectPUA changes the signature
+  # version (+config.<hash>), so all images are rescanned.
   extraConfig: ""
   freshclam:
     # Database mirror for freshclam if mirror.enabled is false. Empty means

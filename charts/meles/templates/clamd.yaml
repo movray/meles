@@ -107,6 +107,10 @@ spec:
             - {name: MELES_MAX_CONNECTIONS, value: {{ .Values.clamd.auth.proxy.maxConnections | quote }}}
             # A hash of the YARA rules goes into the VERSION reply.
             - {name: MELES_RULES_DIR, value: /var/lib/clamav}
+            {{- with include "meles.clamdConfigHash" . }}
+            # So does a hash of the options that change verdicts.
+            - {name: MELES_CONFIG_HASH, value: {{ . | quote }}}
+            {{- end }}
           ports:
             - {name: clamd-tls, containerPort: 3311}
           readinessProbe:

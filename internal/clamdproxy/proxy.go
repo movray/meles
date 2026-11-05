@@ -7,7 +7,8 @@
 // With RulesDir set, the proxy appends a hash of the YARA rules in clamd's
 // database directory to the VERSION reply ("ClamAV 1.4.6/28164+rules.<hash>/
 // <date>"). Clients use the signature version as cache and rescan key, so
-// changed rules count like a signature update.
+// changed rules count like a signature update. ConfigHash goes into the same
+// place as "+config.<hash>".
 package clamdproxy
 
 import (
@@ -69,7 +70,11 @@ type Proxy struct {
 	// RulesDir is clamd's DatabaseDirectory; empty: VERSION is forwarded
 	// unchanged.
 	RulesDir string
-	Logger   *slog.Logger
+	// ConfigHash identifies the clamd options that change verdicts and goes
+	// into VERSION as well, so that a changed option triggers rescans. Empty
+	// for the default options. Hexadecimal, see ValidConfigHash.
+	ConfigHash string
+	Logger     *slog.Logger
 
 	cert   reloader[tls.Certificate]
 	tokens reloader[[][32]byte]
@@ -173,7 +178,7 @@ func (p *Proxy) handle(ctx context.Context, conn *tls.Conn) {
 
 	// VERSION outside a session is a connection of its own: clamd answers
 	// and closes it.
-	if first.text == "VERSION" && p.RulesDir != "" {
+	if first.text == "VERSION" && (p.RulesDir != "" || p.ConfigHash != "") {
 		if err := p.version(first, up, conn); err != nil {
 			log.Error("VERSION", "err", err)
 		}
@@ -205,13 +210,16 @@ func (p *Proxy) handle(ctx context.Context, conn *tls.Conn) {
 	<-done
 }
 
-// version forwards VERSION and appends the rules hash to the signature
-// version in clamd's reply. Without readable rules the client gets no
-// reply, rather than a version that hides the rules.
+// version forwards VERSION and appends the hashes of the rules and of the
+// configuration to the signature version in clamd's reply. Without readable
+// rules the client gets no reply, rather than a version that hides the rules.
 func (p *Proxy) version(cmd command, up net.Conn, client io.Writer) error {
-	hash, err := rulesHash(p.RulesDir)
-	if err != nil {
-		return err
+	var rules string
+	if p.RulesDir != "" {
+		var err error
+		if rules, err = rulesHash(p.RulesDir); err != nil {
+			return err
+		}
 	}
 	up.SetDeadline(time.Now().Add(30 * time.Second))
 	if _, err := up.Write(cmd.raw); err != nil {
@@ -225,19 +233,31 @@ func (p *Proxy) version(cmd command, up net.Conn, client io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("read reply: %w", err)
 	}
-	_, err = client.Write([]byte(withRules(reply, hash)))
+	_, err = client.Write([]byte(withHashes(reply, rules, p.ConfigHash)))
 	return err
 }
 
-// withRules turns "ClamAV 1.4.6/28164/<date>" into
-// "ClamAV 1.4.6/28164+rules.<hash>/<date>".
-func withRules(reply, hash string) string {
+// withHashes turns "ClamAV 1.4.6/28164/<date>" into
+// "ClamAV 1.4.6/28164+rules.<hash>+config.<hash>/<date>". An empty hash is
+// left out.
+func withHashes(reply, rules, config string) string {
 	parts := strings.SplitN(reply, "/", 3)
-	if hash == "" || len(parts) < 2 {
+	if len(parts) < 2 {
 		return reply
 	}
-	parts[1] += "+rules." + hash
+	if rules != "" {
+		parts[1] += "+rules." + rules
+	}
+	if config != "" {
+		parts[1] += "+config." + config
+	}
 	return strings.Join(parts, "/")
+}
+
+// ValidConfigHash reports whether s can go into a VERSION reply: the reply
+// uses "/" and NUL as separators, and the version is part of the cache key.
+func ValidConfigHash(s string) bool {
+	return s == "" || strings.Trim(s, "0123456789abcdef") == ""
 }
 
 // rulesHash hashes the names and contents of the .yar and .yara files in
