@@ -87,6 +87,7 @@ func setup(t *testing.T, configure func(*env)) *env {
 		APIReader: mgr.GetAPIReader(),
 		Version:   "test", Platforms: "all", Workers: 2,
 		ScanTimeout: time.Minute, RetryAfter: time.Hour, RetryIncompleteAfter: time.Hour, RescanInterval: 24 * time.Hour,
+		engineWaits: []time.Duration{time.Millisecond},
 	}
 	if configure != nil {
 		configure(e)

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,6 +20,12 @@ import (
 
 // maxQueued bounds the scans waiting for a worker.
 const maxQueued = 4096
+
+// engineRetryWaits are the waits before a scan that failed in the engine is
+// tried again. Together with the connection retries of the clamd client they
+// cover almost 4 minutes, enough for clamd to load its database after a new
+// install or while it is replaced by an upgrade.
+var engineRetryWaits = []time.Duration{15 * time.Second, 30 * time.Second, time.Minute}
 
 var errQueueFull = errors.New("scan queue full")
 
@@ -186,8 +193,6 @@ func (r *Reconciler) runScan(ctx context.Context, j *scanJob) {
 
 // scan scans img with the pull secrets of pods.
 func (r *Reconciler) scan(ctx context.Context, img image, platforms string, pods []types.NamespacedName) result {
-	sctx, cancel := context.WithTimeout(ctx, r.ScanTimeout)
-	defer cancel()
 	filter, err := source.ParsePlatforms(platforms)
 	if err != nil {
 		return resultFromError(err, r.Version)
@@ -198,7 +203,7 @@ func (r *Reconciler) scan(ctx context.Context, img image, platforms string, pods
 		return resultFromError(err, r.Version)
 	}
 	start := time.Now()
-	rep, err := r.Scanner.Scan(sctx, img.ref, filter, nil, scan.WithKeychain(auth.keychain))
+	rep, err := r.scanRetrying(ctx, img, filter, auth.keychain)
 	if err != nil {
 		r.log().Warn("scan failed", "image", img.ref, "err", err)
 		if scan.IsEngineError(err) {
@@ -208,4 +213,41 @@ func (r *Reconciler) scan(ctx context.Context, img image, platforms string, pods
 	}
 	r.log().Info("image scanned", "image", img.ref, "platforms", platforms, "files", rep.Files(), "findings", len(rep.Findings()), "duration", time.Since(start).Round(time.Millisecond))
 	return resultFromReport(rep, platforms, r.Version)
+}
+
+// scanRetrying scans img and tries again if the engine failed, so that a
+// clamd that is just starting or being replaced does not end in a report
+// with Error. Each attempt may take ScanTimeout. Once the retries were used
+// up, the engine counts as down until it answers again: without this, every
+// image of a long outage would wait for all retries, and pods held by the
+// scan gate would wait for those in front of them.
+func (r *Reconciler) scanRetrying(ctx context.Context, img image, filter source.PlatformFilter, keychain authn.Keychain) (*scan.Report, error) {
+	waits := r.engineWaits
+	if waits == nil {
+		waits = engineRetryWaits
+	}
+	for {
+		sctx, cancel := context.WithTimeout(ctx, r.ScanTimeout)
+		rep, err := r.Scanner.Scan(sctx, img.ref, filter, nil, scan.WithKeychain(keychain))
+		expired := sctx.Err() != nil
+		cancel()
+		if !scan.IsEngineError(err) {
+			r.engineDown.Store(false)
+			return rep, err
+		}
+		if expired {
+			return nil, err
+		}
+		if len(waits) == 0 || r.engineDown.Load() {
+			r.engineDown.Store(true)
+			return nil, err
+		}
+		r.log().Info("engine failed, retrying the scan", "image", img.ref, "wait", waits[0], "err", err)
+		select {
+		case <-time.After(waits[0]):
+		case <-ctx.Done():
+			return nil, err
+		}
+		waits = waits[1:]
+	}
 }

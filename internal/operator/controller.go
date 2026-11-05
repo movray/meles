@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -110,6 +111,11 @@ type Reconciler struct {
 
 	queue  *scanQueue
 	events chan event.GenericEvent
+	// engineDown is set once a scan used up its retries and cleared when the
+	// engine answers again; see scanRetrying.
+	engineDown atomic.Bool
+	// engineWaits overrides engineRetryWaits in tests.
+	engineWaits []time.Duration
 	// results remembers recent scan results by digest and platform filter:
 	// the cache of the client may not yet show a report just written.
 	mu      sync.Mutex
