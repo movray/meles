@@ -49,6 +49,9 @@ server:
   enabled: true
   # Time zone for cron schedules.
   timezone: UTC
+  # Runs the selftest this often and shows the result in the UI, next to the
+  # state of clamd; 0 turns it off.
+  selftestInterval: 6h
   # Runs executed in parallel.
   workers: 1
   # Parallel clamd sessions per run.
@@ -280,7 +283,7 @@ yara:
 selftest:
   enabled: true
   schedule: "0 6 * * *"
-  suspend: true
+  suspend: false
   resources:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {memory: 256Mi}

@@ -1,6 +1,7 @@
 {{- if .Values.selftest.enabled }}
 # Checks the whole chain: generated EICAR test images, pulled from an
-# in-memory registry and scanned by clamd. Run it manually with
+# in-memory registry and scanned by clamd. A failed run shows as a failed Job.
+# Run it manually with
 #   kubectl create job --from=cronjob/{{ include "meles.fullname" . }}-selftest selftest-$(date +%s)
 apiVersion: batch/v1
 kind: CronJob
