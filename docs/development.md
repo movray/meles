@@ -35,8 +35,8 @@ make image-tarball      # build the image into dist/meles.tar, no push
   scans (to test queues and timeouts).
 - **Integration tests** carry the build tag `integration` and run against
   the clamd in `MELES_TEST_CLAMD` (`make test-integration` sets it from
-  `CLAMD`). There is no testcontainers, because the development machine has
-  no Docker. `MELES_TEST_YARA=1` also checks the chart's YARA rules, which
+  `CLAMD`). There is no testcontainers: clamd runs separately, for example
+  with Docker. `MELES_TEST_YARA=1` also checks the chart's YARA rules, which
   the clamd must have loaded.
 - **A minimal clamd**: `hack/ci/mini-clamd.sh <dir> [port]` writes a
   database with only an EICAR hash signature and the chart's YARA rules, and
