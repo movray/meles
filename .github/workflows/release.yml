@@ -38,6 +38,10 @@ jobs:
       COSIGN_VERSION: v3.1.4
       HELM_VERSION: v3.19.0
       HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
+      TRIVY_VERSION: 0.76.1
+      TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      # Keep in line with the selftest job in ci.yml.
+      CLAMAV_IMAGE: docker.io/clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +70,10 @@ jobs:
             -o helm.tgz "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
           echo "$HELM_SHA256  helm.tgz" | sha256sum -c -
           tar -xzf helm.tgz --strip-components=1 linux-amd64/helm
+          curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors \
+            -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "$TRIVY_SHA256  trivy.tgz" | sha256sum -c -
+          tar -xzf trivy.tgz trivy
           echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
 
       # Nothing is published with a known vulnerability in the code paths
@@ -113,6 +121,23 @@ jobs:
           echo "$GITHUB_TOKEN" | ko login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
+      # Nothing is published that fails a scan of meles or Trivy. The image
+      # is built into a local OCI layout for this; the step "Image" builds
+      # it again and checks that it is the same.
+      - name: Scan the image
+        run: |
+          set -eu
+          KO_DOCKER_REPO="$IMAGE" ko build --bare --push=false --oci-layout-path="$OUT/layout" \
+            --platform=linux/amd64,linux/arm64 ./cmd/meles
+          digest="$(jq -r '.manifests[0].digest' "$OUT/layout/index.json")"
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "no digest in the OCI layout: $digest" >&2; exit 1 ;;
+          esac
+          echo "SCANNED_DIGEST=$digest" >> "$GITHUB_ENV"
+          go build -o "$OUT/meles" ./cmd/meles
+          hack/ci/self-scan.sh "$OUT/meles" "$OUT/layout"
+
       # Image and chart first: the GitHub release names both, so it is only
       # created once they exist.
       - name: Image
@@ -133,6 +158,10 @@ jobs:
             *@sha256:*) ;;
             *) echo "no digest in the ko output: $ref" >&2; exit 1 ;;
           esac
+          if [ "${ref##*@}" != "$SCANNED_DIGEST" ]; then
+            echo "image ${ref##*@} is not the scanned image $SCANNED_DIGEST" >&2
+            exit 1
+          fi
           echo "IMAGE_DIGEST=${ref##*@}" >> "$GITHUB_ENV"
 
       - name: Sign image
