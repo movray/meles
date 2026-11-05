@@ -13,18 +13,34 @@ until (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 |
 ./meles image alpine:3.20
 ```
 
-In Kubernetes:
+In Kubernetes (cluster admin, a default StorageClass, about 2 GB of free
+memory on a node):
 
 ```sh
 kubectl create namespace meles
 kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
-helm install meles oci://ghcr.io/movray/charts/meles --version 0.2.0 -n meles
+helm install meles oci://ghcr.io/movray/charts/meles --version 0.2.0 -n meles --set operator.enabled=true
 kubectl -n meles rollout status deploy/meles-clamd --timeout=15m
+kubectl get malwarereports -A                            # every image running in your cluster
 kubectl -n meles port-forward svc/meles-server 8080:80   # http://localhost:8080/
 ```
 
+The operator now pulls and scans the image of every pod, which counts
+against the pull limits of your registries; it only reports and does not touch
+your pods. Reports appear within minutes. A scan that started before clamd was
+ready shows `Error` and is retried within 5 minutes. A very large binary can
+end as `Incomplete`, which is never clean: see
+[Reading the results](results.md).
+
+The port-forward is only the quickest way to have a look. For permanent use,
+expose the UI with `server.ingress` or `server.httpRoute` and put a login in
+front of it with `server.oauth2Proxy`, all in the chart's values:
+[Login for the web UI](../README.md#login-for-the-web-ui). meles has no login of its
+own, so do not expose the UI without one.
+
 Everything below explains these steps and goes further: a file hidden by a
-later layer, the operator, the scan gate.
+later layer, the operator, the scan gate. The tour installs the operator as a
+separate step.
 
 ## The tour
 
@@ -321,6 +337,8 @@ all MalwareReports and ignore rules.
 
 ## Next
 
+- [results.md](results.md): what the results mean and what Clean does not
+  guarantee
 - [README](../README.md): every flag, value and output format, ignore rules,
   Harbor, registry mirrors
 - [architecture.md](architecture.md): how it works and the security model

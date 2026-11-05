@@ -3,6 +3,37 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## v0.3.0
+
+Makes meles easier to start with and more robust while clamd restarts.
+
+### Upgrade
+
+1. **`server.ingress` and `server.httpRoute` now need a login.** Without
+   `server.oauth2Proxy` the chart refuses to render. If another proxy in
+   front of the UI handles the login, or the UI stays on an internal network,
+   set `server.allowUnauthenticated=true`.
+2. **With `clamd.detectPUA` or `clamd.extraConfig` set,** all images are
+   rescanned once: the signature version now carries `+config.<hash>`. With
+   the default options nothing changes.
+
+### Added
+
+- `docs/results.md` explains the results, what `Clean` does not guarantee,
+  limits and false positives. The README starts with an overview, and its
+  TL;DR now covers Kubernetes with the operator.
+- The release workflow scans the image with meles and Trivy before it is
+  published.
+
+### Changed
+
+- The operator tries a scan again for almost 4 minutes if clamd fails, so a
+  clamd that is starting or being replaced no longer leads to `Error` reports,
+  and pods held by the scan gate are no longer released unscanned because of
+  it.
+- A change of `clamd.detectPUA` or `clamd.extraConfig` triggers rescans and
+  reaches the layer cache.
+
 ## v0.2.0
 
 A security release: it fixes the findings of a review of meles itself

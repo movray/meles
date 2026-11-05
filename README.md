@@ -6,11 +6,31 @@
 
 **meles** is a malware scanner for container images: one command on an image
 reference, no Docker daemon, CI-friendly exit codes. It is meant to run next
-to a vulnerability scanner, not to replace one. A web UI runs scheduled scans
-and keeps reports.
+to a vulnerability scanner, not to replace one. In Kubernetes it also scans
+every image your pods run and, if you want, holds new pods until their image
+is scanned.
 
 The name comes from *Meles meles*, the European badger – it digs through the
 layers.
+
+## What you get
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
+  <img src="docs/images/dashboard-light.png" alt="meles dashboard: a quick scan form, counters for tracked and infected images, an infected EICAR test image under Needs attention, and recent runs">
+</picture>
+
+- **[CLI and CI](#quick-start):** `meles image <ref>` fails a pipeline when it
+  finds malware. Output as table, JSON or SARIF, with
+  [ignore rules](#ignore-rules) for false positives.
+- **[Web UI](#web-ui):** quick scans, cron schedules, run history and the
+  reports of the whole cluster.
+- **[Operator](#operator):** scans the image of every pod and writes a
+  `MalwareReport` next to the workload, with optional Prometheus alerts.
+- **[Scan gate](#scan-gate):** optional, holds new pods per namespace until
+  their image is scanned, and pins the scanned digest.
+- **[Harbor](#harbor):** scans every pushed image as a pluggable scanner, also
+  chained with Trivy for one report.
 
 ## TL;DR
 
@@ -24,6 +44,31 @@ until (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 |
 ./meles selftest
 ./meles image alpine:3.20
 ```
+
+Or in a cluster (cluster admin, a default StorageClass, about 2 GB of free
+memory on a node):
+
+```sh
+kubectl create namespace meles
+kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
+helm install meles oci://ghcr.io/movray/charts/meles --version 0.2.0 -n meles --set operator.enabled=true
+kubectl -n meles rollout status deploy/meles-clamd --timeout=15m
+kubectl get malwarereports -A                            # every image running in your cluster
+kubectl -n meles port-forward svc/meles-server 8080:80   # http://localhost:8080/
+```
+
+The operator now pulls and scans the image of every pod, which counts
+against the pull limits of your registries; it only reports and does not touch
+your pods. Reports appear within minutes. A scan that started before clamd was
+ready shows `Error` and is retried within 5 minutes. A very large binary can
+end as `Incomplete`, which is never clean: see
+[Reading the results](docs/results.md).
+
+The port-forward is only the quickest way to have a look. For permanent use,
+expose the UI with `server.ingress` or `server.httpRoute` and put a login in
+front of it with `server.oauth2Proxy`, all in the chart's values:
+[Login for the web UI](#login-for-the-web-ui). meles has no login of its
+own, so do not expose the UI without one.
 
 A step-by-step tour, from a file hidden by a later layer to the scan gate in
 Kubernetes: [docs/getting-started.md](docs/getting-started.md).
@@ -51,6 +96,8 @@ substitute for image signing, SBOMs or runtime detection.
 
 - [docs/getting-started.md](docs/getting-started.md): a step-by-step tour,
   from a first scan to the scan gate in a cluster
+- [docs/results.md](docs/results.md): what Clean, Infected, Incomplete and
+  Error mean, what Clean does not guarantee, limits and false positives
 - this README: using meles (CLI, web UI, Kubernetes, Harbor)
 - [docs/architecture.md](docs/architecture.md): how it works, where state
   lives, security model, design decisions
@@ -80,7 +127,8 @@ go install github.com/movray/meles/cmd/meles@v$VERSION
 
 Binaries, image and chart are built by the
 [release workflow](.github/workflows/release.yml) and carry signed build
-provenance. Check it with the GitHub CLI:
+provenance. The image is scanned with meles and Trivy before it is published.
+Check the provenance with the GitHub CLI:
 
 ```sh
 gh attestation verify meles_${VERSION}_linux_amd64.tar.gz -R movray/meles
@@ -383,11 +431,6 @@ malware-scan:
 
 `meles server` serves a web UI and JSON API:
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
-  <img src="docs/images/dashboard-light.png" alt="meles dashboard: a quick scan form, counters for tracked and infected images, an infected EICAR test image under Needs attention, and recent runs">
-</picture>
-
 - **Dashboard** – quick scan, images that need attention, upcoming and recent runs
 - **Scans** – image references with an optional cron schedule (`@daily`,
   `0 3 * * 1-5`, `@every 6h`, `CRON_TZ=Europe/Berlin …`)
@@ -466,7 +509,8 @@ Important values (see `charts/meles/values.yaml`):
 | `scan.registryMirrors` | `[]` | mirrors the server and the operator pull from first, e.g. `docker.io=harbor.example.com/dockerhub` (see `--registry-mirror`) |
 | `scan.registryCA.configMap` | `""` | ConfigMap with an additional CA (`key`, default `ca.crt`) for registries and mirrors, e.g. a private CA of Harbor |
 | `scan.allowPrivateRegistries` | `[]` | registries on private addresses the server and the operator may pull from: host, `host:port`, `*.domain` or a network such as `10.0.0.0/8` (see `--allow-private-registry`); mirror hosts are allowed, loopback and link-local never |
-| `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress) |
+| `server.httpRoute.*`, `server.ingress.*` | off | expose the UI (Gateway API or Ingress); needs `server.oauth2Proxy` or `server.allowUnauthenticated` |
+| `server.allowUnauthenticated` | `false` | allow `server.httpRoute` or `server.ingress` without `server.oauth2Proxy` |
 | `clamd.auth.enabled` | `true` | TLS + token in front of clamd (see below) |
 | `clamd.auth.existingSecret` | `""` | secret with key `token`; empty: generated and kept |
 | `clamd.auth.tls.*` | self-signed | `existingSecret`, `certManager.enabled` + `issuerRef`, `extraDnsNames` |
@@ -546,8 +590,11 @@ replicaset-web-7cb58b7fff-nginx        ReplicaSet   nginx                  docke
 - `Status` is `Clean`, `Infected`, `Incomplete` (files skipped) or `Error`
   (not scanned, e.g. a private registry or an image imported into the node).
   `Error` and `Incomplete` are never clean.
-- `Error` is retried after `operator.retryAfter` (1h), `Incomplete` after
-  `operator.retryIncompleteAfter` (12h), for example once clamd's limits
+- If clamd fails, a scan is tried again for almost 4 minutes before it ends
+  as `Error`, so a clamd that is starting or being replaced does not show up
+  in the reports. Such an `Error` is then retried after at most 5 minutes.
+- Any other `Error` is retried after `operator.retryAfter` (1h), `Incomplete`
+  after `operator.retryIncompleteAfter` (12h), for example once clamd's limits
   (`clamd.maxScanSize`, `clamd.maxScanTime`) were raised. Other results are
   rescanned when
   the signature database changed, at most once per `operator.rescanInterval`
@@ -749,7 +796,7 @@ was scanned before is released at once; rescans never hold a pod.
   are never gated. Pods that exist already are not affected.
 - If clamd fails, held pods are released with a warning event
   (`ScanGateReleasedUnscanned`) unless `operator.gate.failOpen=false`.
-  Images that cannot be pulled or resolved stay held.
+  Images that cannot be pulled or resolved stay held in `enforce` mode.
 - If the operator is down, new pods start ungated
   (`operator.gate.failurePolicy: Ignore`); `Fail` refuses to create pods in
   gated namespaces until it is back. The chart runs two operator replicas
@@ -870,12 +917,20 @@ server:
     # If the provider's certificate comes from an internal CA: a ConfigMap
     # with the CA certificate in the release namespace.
     providerCA: {configMap: internal-ca, key: ca.crt}
+  # Or httpRoute (Gateway API) with parentRefs and hostnames.
+  ingress:
+    enabled: true
+    className: nginx
+    host: meles.example.com
+    tls: [{secretName: meles-tls, hosts: [meles.example.com]}]
 ```
 
 oauth2-proxy only accepts users with a verified e-mail address.
 
 Without oauth2-proxy keep the UI internal (port-forward) or put another
-authenticating proxy in front of it.
+authenticating proxy in front of it. The chart refuses `server.ingress` and
+`server.httpRoute` without oauth2-proxy; if another proxy handles the login,
+or the UI stays on an internal network, set `server.allowUnauthenticated=true`.
 
 ### clamd authentication
 

@@ -165,7 +165,12 @@ signatures is compared), and `yr check` must pass.
 - **Version measured by the clamd-proxy.** The proxy hashes the `.yar` and
   `.yara` files in clamd's database directory and appends the hash to the
   signature version in the `VERSION` reply
-  (`ClamAV 1.4.6/28164+rules.<hash>/…`). A report carries the rules version
+  (`ClamAV 1.4.6/28164+rules.<hash>/…`). The chart adds `+config.<hash>` if
+  `clamd.detectPUA` or `clamd.extraConfig` are set: these options change the
+  verdict on files that were clean before, so they must reach the layer cache
+  and the rescans like new rules. Limits stay out, because what they stop is
+  reported as skipped, and with the default options the suffix is left out, so
+  an upgrade does not rescan everything. A report carries the rules version
   only if the scanning clamd has the rules, and rescans and layer caches
   follow without a mechanism of their own. If the rules cannot be read the
   proxy sends no reply rather than a version without them. Rejected: the
@@ -251,6 +256,16 @@ limit of its own (controller-runtime's default).
 
 - `Error` is retried after `--retry-after` (1h), `Incomplete` after
   `--retry-incomplete-after` (12h).
+- A scan that failed in the engine is first tried again in place: after 15 s,
+  30 s and 60 s, on top of the 30 s the clamd client retries refused
+  connections, so almost 4 minutes in all. This covers a new install, where
+  the operator starts before clamd, and an upgrade, where clamd is replaced
+  during a scan. The whole scan starts over, because a stream that broke off
+  cannot be resumed. After the last try the engine counts as down until it
+  answers again, and scans fail at once: otherwise each image of a long
+  outage would take 4 minutes, and pods held by the gate would wait for that
+  before `--gate-fail-open` releases them. Only the operator retries; a run
+  in the web UI shows the error, and the user or the next schedule repeats it.
 - `Clean` and `Infected` are rescanned when engine or signature version
   changed, at most every `--rescan-interval` (24h).
 - The annotation `meles.io/rescan` on a report forces a rescan.

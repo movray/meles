@@ -156,6 +156,14 @@ Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
 Write the `CHANGELOG.md` section before tagging: a final release without
 one fails before anything is published. Pre-releases may leave it out.
 
+Before anything is published, `hack/ci/self-scan.sh` scans the image from a
+local OCI layout: meles with clamd, the full signature database and the
+chart's YARA rules on all platforms, Trivy for fixed vulnerabilities of
+severity HIGH or CRITICAL on linux/amd64. A finding, a skipped file or an
+error stops the release. The published image is built again and must have
+the digest of the scanned one. Each run, the dry run as well, downloads the
+signature database from Cisco Talos, so do not start it in a loop.
+
 Image and chart come first, so a release never names an image that does not
 exist. Started by hand (Actions → release → Run workflow), the workflow
 builds everything and publishes nothing: a dry run before tagging, which
@@ -180,6 +188,3 @@ git grep -n -F '0.1.0' -- README.md docs/getting-started.md   # the previous ver
 `make image` builds and pushes the same image by hand to `KO_DOCKER_REPO`,
 e.g. for a test registry. Build from a clean checkout so that the version is
 not `-dirty`.
-
-Still planned: a scan of the own image with Trivy and meles before it is
-published.
