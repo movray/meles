@@ -114,6 +114,10 @@ spec:
             - {name: MELES_LISTEN, value: "127.0.0.1:8080"}
             {{- end }}
             - {name: MELES_TIMEZONE, value: {{ .Values.server.timezone | quote }}}
+            - {name: MELES_SELFTEST_INTERVAL, value: {{ .Values.server.selftestInterval | quote }}}
+            {{- if and .Values.mirror.enabled .Values.yara.defaultRules }}
+            - {name: MELES_SELFTEST_YARA, value: "true"}
+            {{- end }}
             - {name: MELES_WORKERS, value: {{ .Values.server.workers | quote }}}
             - {name: MELES_CONCURRENCY, value: {{ .Values.server.concurrency | quote }}}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}

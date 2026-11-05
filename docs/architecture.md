@@ -483,6 +483,15 @@ Several clusters will be a layer of their own later (a central server
 collecting from the servers per cluster); the operator stays cluster-local.
 The `cluster` column (`--cluster-name`) prepares that.
 
+The server also runs the selftest (`--selftest-interval`, 6 hours), because
+the state of clamd in the top bar only says that clamd answers, not that it
+still finds anything. It uses the scanner of the server's runs, without the
+layer cache (a cached layer would pass without asking clamd) and without the
+address restrictions for registries (the test images are on loopback, no
+user input reaches this path). While it fails it is repeated every 30 seconds.
+The result stays in memory, as the server runs it again at start, and it does
+not affect `/readyz`: an unready server would hide the warning.
+
 ## Harbor adapter
 
 `meles harbor-adapter` implements Harbor's

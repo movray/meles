@@ -1,5 +1,13 @@
 {{define "content"}}
 {{$d := .Data}}
+{{if and .Selftest.Enabled (not .Selftest.CheckedAt.IsZero) (not .Selftest.Passed)}}
+<section class="card selftest-alert" role="alert">
+  <h2>Selftest failed</h2>
+  <p>{{if .Selftest.Failed}}meles did not get the expected result for its test images.{{else}}meles could not check its test images.{{end}} Results of new scans cannot be trusted until this is solved.</p>
+  {{if .Selftest.Failed}}<ul>{{range .Selftest.Failed}}<li><code>{{.}}</code></li>{{end}}</ul>{{end}}
+  {{if .Selftest.Error}}<p><code>{{.Selftest.Error}}</code></p>{{end}}
+</section>
+{{end}}
 <section class="hero card">
   <h1>Scan an image</h1>
   <form class="quick" method="post" action="/runs">

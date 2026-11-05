@@ -24,11 +24,13 @@ type pageTemplate struct {
 
 // page is the data every template receives.
 type page struct {
-	Title   string
-	Nav     string
-	Engine  EngineStatus
-	Version string
-	Queue   int
+	Title  string
+	Nav    string
+	Engine EngineStatus
+	// Selftest is the last result of the regular selftest.
+	Selftest SelftestStatus
+	Version  string
+	Queue    int
 	// Cluster shows the navigation entry for the operator's reports.
 	Cluster bool
 	// Ignores shows the navigation entry and buttons for ignore rules.
@@ -56,6 +58,7 @@ func (s *Server) parseTemplates() (map[string]*pageTemplate, error) {
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, p page) {
 	p.Engine = s.Engine()
+	p.Selftest = s.Selftest()
 	p.Version = s.version
 	p.Queue = s.runner.QueueLen()
 	p.Cluster = s.cluster != nil

@@ -206,7 +206,7 @@ On a test cluster this took about a minute; it depends on the download.
 
 ### Check the chain
 
-The chart has a suspended CronJob for the selftest. Run it once:
+The chart runs the selftest daily as a CronJob. Run it once by hand:
 
 ```
 $ kubectl -n meles create job --from=cronjob/meles-selftest selftest-1
@@ -223,6 +223,11 @@ selftest passed
 
 The last line checks the YARA rules the chart ships; `+rules.…` in the
 signature version is their hash.
+
+The server runs the same check every 6 hours (`server.selftestInterval`) and
+shows the result in the top bar of the UI, next to the state of clamd. If it
+fails, the dashboard names the test image. Scripts can read it from
+`/api/selftest`.
 
 ### The web UI
 

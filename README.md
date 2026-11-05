@@ -457,7 +457,9 @@ To try it with infected test images locally, see
 
 API: `GET/POST /api/scans`, `GET/PUT/DELETE /api/scans/{id}`,
 `POST /api/scans/{id}/run`, `GET/POST /api/runs`, `GET /api/runs/{id}`,
-`GET /api/runs/{id}/report`, `/healthz`, `/readyz` (clamd reachable).
+`GET /api/runs/{id}/report`, `GET /api/selftest`, `/healthz`, `/readyz` (clamd
+reachable; a failed selftest does not make the server unready, the UI has to
+show it).
 
 ## Kubernetes
 
@@ -470,8 +472,9 @@ The Helm chart in `charts/meles` installs these roles:
 | `<release>-server` | web UI, scheduler, run history (SQLite on a PVC). |
 | `<release>-operator` | scans the image of every pod in the cluster, writes MalwareReports (off by default, see below). |
 
-Plus a suspended CronJob `<release>-selftest` to check the chain on demand
-(with `yara.defaultRules` it also checks that clamd has loaded the YARA rules).
+Plus a CronJob `<release>-selftest` that checks the chain daily (with
+`yara.defaultRules` also that clamd has loaded the YARA rules). The server
+runs the same check every 6 hours and shows the result in the UI.
 Each role can be turned off; with `clamd.enabled=false` set `clamd.address`
 to an existing clamd.
 

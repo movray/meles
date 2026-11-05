@@ -19,6 +19,7 @@ import (
 	"github.com/movray/meles/internal/runner"
 	"github.com/movray/meles/internal/scan"
 	"github.com/movray/meles/internal/schedule"
+	"github.com/movray/meles/internal/selftest"
 	"github.com/movray/meles/internal/server"
 	"github.com/movray/meles/internal/store"
 )
@@ -40,6 +41,8 @@ func newServerCmd() *cobra.Command {
 		clusterName string
 		historyDays int
 		opStatus    string
+		selftestInt time.Duration
+		selftestY   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -61,7 +64,11 @@ authenticating proxy (e.g. oauth2-proxy).
 creates a MalwareIgnore in the report's namespace or a ClusterMalwareIgnore,
 recording the user from the X-Forwarded-Email header of oauth2-proxy. The
 server's own runs then also apply the ClusterMalwareIgnores. A run keeps the
-verdict of its time; a new rule applies from the next run on.`,
+verdict of its time; a new rule applies from the next run on.
+
+Every --selftest-interval it scans the EICAR test images of meles selftest and
+shows the result next to the state of clamd: clamd can answer and still have
+lost its signatures. A failed selftest does not make the server unready.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			loc, err := time.LoadLocation(timezone)
@@ -99,6 +106,9 @@ verdict of its time; a new rule applies from the next run on.`,
 			if clusterIgn && !cluster {
 				return errors.New("--cluster-ignore needs --cluster-reports")
 			}
+			if selftestInt < 0 {
+				return errors.New("--selftest-interval must not be negative")
+			}
 			run := runner.New(st, sc, workers, runTimeout, log)
 			sched := schedule.New(st, run, loc, log)
 			if err := sched.Sync(ctx); err != nil {
@@ -133,6 +143,11 @@ verdict of its time; a new rule applies from the next run on.`,
 				Store: st, Runner: run, Scheduler: sched, Engine: sc.Engine, Cache: cache,
 				Location: loc, Logger: log, Version: version,
 			}
+			if selftestInt > 0 {
+				cfg.Selftest = func(ctx context.Context) (*selftest.Result, error) {
+					return selftest.Run(ctx, sc, selftestY)
+				}
+			}
 			if reports != nil {
 				cfg.Cluster, cfg.ClusterRescan, cfg.ClusterName = reports, rescan, clusterName
 				if clusterIgn {
@@ -150,6 +165,7 @@ verdict of its time; a new rule applies from the next run on.`,
 			run.Start(ctx)
 			sched.Start()
 			go srv.WatchEngine(ctx, 30*time.Second)
+			go srv.WatchSelftest(ctx, selftestInt)
 			if reports != nil {
 				go func() {
 					if err := srv.RunClusterHistory(ctx, reports, time.Duration(historyDays)*24*time.Hour); err != nil {
@@ -201,6 +217,8 @@ verdict of its time; a new rule applies from the next run on.`,
 	cmd.Flags().BoolVar(&rescan, "cluster-rescan", true, "with --cluster-reports: allow requesting a rescan from the UI (needs patch on malwarereports.meles.io)")
 	cmd.Flags().BoolVar(&clusterIgn, "cluster-ignore", false, "with --cluster-reports: create and delete ignore rules (MalwareIgnore, ClusterMalwareIgnore) from the UI, and apply the ClusterMalwareIgnores to the server's own runs (needs get/list/watch/create/delete on both)")
 	cmd.Flags().StringVar(&ignoreF, "ignorefile", "", "YAML file with ignore rules for the server's own runs, read at every run (format of meles image --ignorefile)")
+	cmd.Flags().DurationVar(&selftestInt, "selftest-interval", 6*time.Hour, "run the selftest this often and show the result in the UI; 0 turns it off")
+	cmd.Flags().BoolVar(&selftestY, "selftest-yara", false, "also check that clamd has loaded the default YARA rules")
 	cmd.Flags().IntVar(&cachePaths, "cache-paths", scan.DefaultMaxPaths, "file paths kept in the layer cache over all layers (about 100-150 bytes each)")
 	return cmd
 }

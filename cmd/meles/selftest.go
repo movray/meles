@@ -2,13 +2,10 @@ package main
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/spf13/cobra"
 
-	"github.com/movray/meles/internal/scan"
-	"github.com/movray/meles/internal/source"
-	"github.com/movray/meles/internal/testimage"
+	"github.com/movray/meles/internal/selftest"
 )
 
 func newSelftestCmd() *cobra.Command {
@@ -26,43 +23,26 @@ With --yara it also checks that clamd has loaded the default YARA rules
 (charts/meles/rules) with a harmless XMRig configuration file.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cases := testimage.Cases()
-			if yara {
-				cases = append(cases, testimage.YaraCases()...)
-			}
-			reg, err := testimage.Serve(cases)
-			if err != nil {
-				return err
-			}
-			defer reg.Close()
-
-			sf.insecure = true
 			s, err := sf.scanner(nil)
 			if err != nil {
 				return err
 			}
-			v, err := s.Engine.Version(cmd.Context())
+			res, err := selftest.Run(cmd.Context(), s, yara)
+			out := cmd.OutOrStdout()
+			if res.Engine != "" {
+				fmt.Fprintf(out, "engine: %s\n", res.Engine)
+			}
+			for _, c := range res.Checks {
+				if c.Pass() {
+					fmt.Fprintf(out, "PASS  %-17s %v\n", c.Name, c.Got)
+				} else {
+					fmt.Fprintf(out, "FAIL  %-17s got %v, want %v\n", c.Name, c.Got, c.Want)
+				}
+			}
 			if err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "engine: %s\n", v.Raw)
-
-			ok := true
-			for _, c := range cases {
-				rep, err := s.Scan(cmd.Context(), reg.Ref(c.Name), source.PlatformFilter{}, nil)
-				if err != nil {
-					return fmt.Errorf("%s: %w", c.Name, err)
-				}
-				got := selftestFindings(rep)
-				if slices.Equal(got, c.Want) {
-					fmt.Fprintf(out, "PASS  %-17s %v\n", c.Name, got)
-				} else {
-					fmt.Fprintf(out, "FAIL  %-17s got %v, want %v\n", c.Name, got, c.Want)
-					ok = false
-				}
-			}
-			if !ok {
+			if len(res.Failed()) > 0 {
 				return fmt.Errorf("selftest failed")
 			}
 			if !yara {
@@ -75,12 +55,4 @@ With --yara it also checks that clamd has loaded the default YARA rules
 	sf.register(cmd.Flags())
 	cmd.Flags().BoolVar(&yara, "yara", false, "also check that clamd has loaded the default YARA rules")
 	return cmd
-}
-
-func selftestFindings(r *scan.Report) []string {
-	var out []string
-	for _, f := range r.Findings() {
-		out = append(out, f.Path+" "+f.Status)
-	}
-	return out
 }

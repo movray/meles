@@ -3,6 +3,28 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## v0.3.1
+
+Shows in the UI whether meles still finds what it must find.
+
+### Upgrade
+
+The selftest CronJob of the chart now runs daily, and the server scans the
+test images every 6 hours. With `clamd.enabled=false` and a clamd without the
+EICAR signature the UI shows the selftest as failed; set
+`server.selftestInterval=0` then.
+
+### Added
+
+- The server runs the selftest every 6 hours and shows the result in the UI
+  and at `/api/selftest`: clamd can answer and still have lost its signatures.
+  `--selftest-interval`, chart value `server.selftestInterval`, 0 turns it off.
+
+### Changed
+
+- The selftest CronJob of the chart now runs daily. Set
+  `selftest.suspend=true` for the old behaviour.
+
 ## v0.3.0
 
 Makes meles easier to start with and more robust while clamd restarts.

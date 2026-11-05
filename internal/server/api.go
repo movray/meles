@@ -209,3 +209,7 @@ func (s *Server) apiGetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, run)
 }
+
+func (s *Server) apiSelftest(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.Selftest())
+}

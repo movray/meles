@@ -19,7 +19,16 @@ import (
 	"github.com/movray/meles/internal/runner"
 	"github.com/movray/meles/internal/scan"
 	"github.com/movray/meles/internal/schedule"
+	"github.com/movray/meles/internal/selftest"
 	"github.com/movray/meles/internal/store"
+)
+
+const (
+	// selftestTimeout bounds one selftest; it takes seconds.
+	selftestTimeout = 5 * time.Minute
+	// selftestRetry is the wait while the selftest cannot run or fails, so
+	// that the UI shows the recovery soon.
+	selftestRetry = 30 * time.Second
 )
 
 //go:embed web
@@ -42,9 +51,13 @@ type Server struct {
 	// clusterName tags the history of the cluster's reports.
 	clusterName string
 	operator    OperatorStatus
+	selftest    func(context.Context) (*selftest.Result, error)
+	// selftestRetry is the constant of the same name, shorter in tests.
+	selftestRetry time.Duration
 
-	mu           sync.Mutex
-	engineStatus EngineStatus
+	mu             sync.Mutex
+	engineStatus   EngineStatus
+	selftestStatus SelftestStatus
 }
 
 // EngineStatus is the last result of the engine health check.
@@ -53,6 +66,22 @@ type EngineStatus struct {
 	Version   engine.Version
 	Error     string
 	CheckedAt time.Time
+}
+
+// SelftestStatus is the last result of the regular selftest. It stays in
+// memory: the server runs the selftest again when it starts.
+type SelftestStatus struct {
+	// Enabled is false if the server does not run the selftest.
+	Enabled bool `json:"enabled"`
+	// Passed is true if every test image gave the expected result. Without
+	// CheckedAt the selftest has not finished yet.
+	Passed    bool      `json:"passed"`
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
+	Engine    string    `json:"engine,omitempty"`
+	// Failed lists the test images with a wrong result.
+	Failed []string `json:"failed,omitempty"`
+	// Error says why the selftest could not finish.
+	Error string `json:"error,omitempty"`
 }
 
 // Config configures a Server.
@@ -76,6 +105,9 @@ type Config struct {
 	ClusterName string
 	// Operator, if set, shows what the operator does on the Cluster page.
 	Operator OperatorStatus
+	// Selftest, if set, is run regularly by WatchSelftest and shows its
+	// result in the UI.
+	Selftest func(context.Context) (*selftest.Result, error)
 }
 
 // OperatorStatus fetches the status of the meles operator;
@@ -100,6 +132,10 @@ func New(c Config) (*Server, error) {
 		ignores:     c.Ignores,
 		clusterName: c.ClusterName,
 		operator:    c.Operator,
+		selftest:    c.Selftest,
+
+		selftestRetry:  selftestRetry,
+		selftestStatus: SelftestStatus{Enabled: c.Selftest != nil},
 	}
 	if s.loc == nil {
 		s.loc = time.Local
@@ -155,6 +191,63 @@ func (s *Server) Engine() EngineStatus {
 	return s.engineStatus
 }
 
+// WatchSelftest runs the selftest every interval until ctx is canceled. It
+// waits for the engine: an unreachable clamd shows in the UI by itself and
+// says nothing about the result of the last selftest.
+func (s *Server) WatchSelftest(ctx context.Context, interval time.Duration) {
+	if s.selftest == nil {
+		return
+	}
+	for {
+		wait := s.selftestRetry
+		if s.Engine().OK && s.runSelftest(ctx) {
+			wait = interval
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
+}
+
+// runSelftest runs the selftest once and reports whether it passed.
+func (s *Server) runSelftest(ctx context.Context) bool {
+	rctx, cancel := context.WithTimeout(ctx, selftestTimeout)
+	defer cancel()
+	res, err := s.selftest(rctx)
+	if ctx.Err() != nil {
+		return false // shutting down: no result
+	}
+	st := SelftestStatus{Enabled: true, CheckedAt: time.Now(), Engine: res.Engine}
+	for _, c := range res.Failed() {
+		st.Failed = append(st.Failed, c.String())
+	}
+	if err != nil {
+		st.Error = err.Error()
+	}
+	st.Passed = err == nil && len(st.Failed) == 0
+
+	s.mu.Lock()
+	prev := s.selftestStatus
+	s.selftestStatus = st
+	s.mu.Unlock()
+	switch {
+	case st.Passed:
+		s.log.Info("selftest passed", "engine", st.Engine)
+	case prev.Passed || prev.CheckedAt.IsZero():
+		s.log.Error("selftest failed: results of new scans cannot be trusted", "engine", st.Engine, "failed", st.Failed, "err", err)
+	}
+	return st.Passed
+}
+
+// Selftest returns the last result of the regular selftest.
+func (s *Server) Selftest() SelftestStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.selftestStatus
+}
+
 // Handler returns the HTTP handler with all routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -197,6 +290,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/cluster/reports", s.apiClusterReports)
 	mux.HandleFunc("GET /api/cluster/reports/{namespace}/{name}/history", s.apiClusterHistory)
 	mux.HandleFunc("GET /api/cluster/operator", s.apiOperator)
+	mux.HandleFunc("GET /api/selftest", s.apiSelftest)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ping(r.Context()); err != nil {

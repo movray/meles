@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +28,7 @@ import (
 	"github.com/movray/meles/internal/runner"
 	"github.com/movray/meles/internal/scan"
 	"github.com/movray/meles/internal/schedule"
+	"github.com/movray/meles/internal/selftest"
 	"github.com/movray/meles/internal/source"
 	"github.com/movray/meles/internal/store"
 	"github.com/movray/meles/internal/testimage"
@@ -382,6 +386,107 @@ func TestClusterHistory(t *testing.T) {
 
 // The theme switch is in every page; its script is loaded before the
 // stylesheet, so a chosen theme does not flash.
+func TestSelftestStatus(t *testing.T) {
+	passed := &selftest.Result{Engine: "fake/1", Checks: []selftest.Check{{Name: "clean"}}}
+	wrong := &selftest.Result{Engine: "fake/1", Checks: []selftest.Check{{Name: "eicar-present", Want: []string{"/opt/eicar.com present"}}}}
+	tests := []struct {
+		name     string
+		res      *selftest.Result
+		err      error
+		passed   bool
+		top      string
+		alert    string
+		notAlert bool
+	}{
+		{name: "passed", res: passed, passed: true, top: "Selftest passed just now", notAlert: true},
+		{name: "wrong result", res: wrong, top: "Selftest failed", alert: "eicar-present: got [], want [/opt/eicar.com present]"},
+		{name: "could not run", res: &selftest.Result{}, err: errors.New("clean: read reply: EOF"), top: "Selftest failed", alert: "clean: read reply: EOF"},
+		{name: "partly done, then an error", res: passed, err: errors.New("read reply: EOF"), top: "Selftest failed", alert: "read reply: EOF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t, func(c *Config) {
+				c.Selftest = func(context.Context) (*selftest.Result, error) { return tt.res, tt.err }
+			})
+			if _, body := e.do("GET", "/", "", ""); !strings.Contains(body, "Selftest pending") {
+				t.Error("no pending state before the first run")
+			}
+			if got := e.s.runSelftest(t.Context()); got != tt.passed {
+				t.Errorf("runSelftest = %v, want %v", got, tt.passed)
+			}
+			_, body := e.do("GET", "/", "", "")
+			if !strings.Contains(body, tt.top) {
+				t.Errorf("dashboard does not show %q", tt.top)
+			}
+			if tt.notAlert == strings.Contains(body, "selftest-alert") {
+				t.Errorf("alert shown = %v, want %v", tt.notAlert, !tt.notAlert)
+			}
+			if !strings.Contains(html.UnescapeString(body), tt.alert) {
+				t.Errorf("dashboard does not show %q", tt.alert)
+			}
+			var st SelftestStatus
+			_, api := e.do("GET", "/api/selftest", "", "")
+			if err := json.Unmarshal([]byte(api), &st); err != nil {
+				t.Fatal(err)
+			}
+			if st.Passed != tt.passed || !st.Enabled || st.CheckedAt.IsZero() {
+				t.Errorf("api: %+v", st)
+			}
+			// A failed selftest must not hide the UI that shows it.
+			if resp, _ := e.do("GET", "/readyz", "", ""); resp.StatusCode != http.StatusOK {
+				t.Errorf("readyz = %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestSelftestDisabled(t *testing.T) {
+	e := newEnv(t)
+	e.s.WatchSelftest(t.Context(), time.Hour) // returns at once
+	if _, body := e.do("GET", "/", "", ""); strings.Contains(body, "Selftest") {
+		t.Error("the dashboard shows a selftest that does not run")
+	}
+}
+
+func TestWatchSelftest(t *testing.T) {
+	tests := []struct {
+		name     string
+		engineUp bool
+		// failFirst fails this many runs before they pass.
+		failFirst int
+		wantRuns  int
+	}{
+		{name: "waits for the engine", engineUp: false, wantRuns: 0},
+		{name: "passed: next run after the interval", engineUp: true, wantRuns: 1},
+		{name: "failed: tries again soon", engineUp: true, failFirst: 2, wantRuns: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var runs atomic.Int32
+			e := newEnv(t, func(c *Config) {
+				c.Selftest = func(context.Context) (*selftest.Result, error) {
+					if int(runs.Add(1)) <= tt.failFirst {
+						return &selftest.Result{}, errors.New("failed")
+					}
+					return &selftest.Result{}, nil
+				}
+			})
+			e.s.selftestRetry = time.Millisecond
+			if !tt.engineUp {
+				e.s.mu.Lock()
+				e.s.engineStatus = EngineStatus{}
+				e.s.mu.Unlock()
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+			defer cancel()
+			e.s.WatchSelftest(ctx, time.Hour)
+			if got := int(runs.Load()); got != tt.wantRuns {
+				t.Errorf("runs = %d, want %d", got, tt.wantRuns)
+			}
+		})
+	}
+}
+
 func TestThemeSwitch(t *testing.T) {
 	e := newEnv(t)
 	_, out := e.do("GET", "/", "", "")
