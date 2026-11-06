@@ -160,7 +160,7 @@ func (k *KubeReports) RequestRescan(ctx context.Context, namespace, name string)
 
 // Status values of cluster reports in the UI, matching the run statuses
 // where they mean the same.
-const statusIncomplete = "incomplete"
+const statusIncomplete = store.StatusIncomplete
 
 // clusterStatus maps a report status to the UI status.
 func clusterStatus(s string) string {

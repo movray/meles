@@ -27,7 +27,10 @@ const (
 	StatusRunning  = "running"
 	StatusClean    = "clean"
 	StatusInfected = "infected"
-	StatusError    = "error"
+	// StatusIncomplete: nothing matched, but files were not scanned. Never
+	// clean.
+	StatusIncomplete = "incomplete"
+	StatusError      = "error"
 )
 
 // Run triggers.
@@ -77,7 +80,7 @@ type Run struct {
 
 // Done reports whether the run has finished.
 func (r *Run) Done() bool {
-	return r.Status == StatusClean || r.Status == StatusInfected || r.Status == StatusError
+	return r.Status == StatusClean || r.Status == StatusInfected || r.Status == StatusIncomplete || r.Status == StatusError
 }
 
 // Duration returns how long the run took or has been running.
@@ -153,6 +156,11 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema + clusterSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
+	}
+	// Before v0.3.2 a run with skipped files was stored as clean.
+	if _, err := db.Exec(`UPDATE runs SET status = 'incomplete' WHERE status = 'clean' AND skipped > 0`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate run status: %w", err)
 	}
 	return &Store{db: db}, nil
 }
@@ -355,8 +363,11 @@ func (s *Store) FinishRun(ctx context.Context, id int64, rep *scan.Report, runEr
 	}
 
 	status := StatusClean
-	if rep.Infected() {
+	switch {
+	case rep.Infected():
 		status = StatusInfected
+	case len(rep.ActiveSkipped()) > 0:
+		status = StatusIncomplete
 	}
 	js, err := json.Marshal(rep)
 	if err != nil {

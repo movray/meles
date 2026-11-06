@@ -19,6 +19,7 @@
     <div class="verdict-title">
       {{if eq $run.Status "clean"}}No malware found
       {{else if eq $run.Status "infected"}}{{$run.Findings}} finding{{if ne $run.Findings 1}}s{{end}}
+      {{else if eq $run.Status "incomplete"}}Scan incomplete – {{$run.Skipped}} file{{if ne $run.Skipped 1}}s{{end}} not scanned
       {{else if eq $run.Status "error"}}Scan failed – the image was not fully scanned
       {{else if eq $run.Status "running"}}Scanning…
       {{else}}Waiting for a free worker…{{end}}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/movray/meles/internal/engine"
+	"github.com/movray/meles/internal/extract"
 	"github.com/movray/meles/internal/scan"
 )
 
@@ -261,5 +262,86 @@ func TestDailyBounds(t *testing.T) {
 		if d, err := s.ClusterDaily(ctx, "", days, time.UTC); err != nil || len(d) != days {
 			t.Errorf("ClusterDaily(%d): %d entries, %v", days, len(d), err)
 		}
+	}
+}
+
+func skippedReport(signature string) *scan.Report {
+	rep := infectedReport()
+	rep.Platforms[0].Findings = nil
+	rep.Platforms[0].Skipped = []scan.SkippedFile{{Platform: "linux/amd64", Layer: 1, Skipped: extract.Skipped{Path: "/big", Signature: signature}}}
+	return rep
+}
+
+// A run with skipped files is never clean, in the database and in everything
+// that counts runs.
+func TestRunIncomplete(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+	run := &Run{ImageRef: "registry.example/app:1", Platforms: "all", Trigger: TriggerManual}
+	if err := s.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishRun(ctx, run.ID, skippedReport("Heuristics.Limits.Exceeded.MaxFiles"), nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusIncomplete || got.Skipped != 1 || !got.Done() {
+		t.Fatalf("run = %+v", got)
+	}
+	st, err := s.Stats(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Clean != 0 || st.Incomplete != 1 {
+		t.Errorf("stats = %+v", st)
+	}
+	images, err := s.ImageStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 || images[0].Status != StatusIncomplete {
+		t.Errorf("images = %+v", images)
+	}
+	days, err := s.Daily(ctx, 1, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if days[0].Incomplete != 1 || days[0].Clean != 0 {
+		t.Errorf("days = %+v", days)
+	}
+}
+
+// Runs stored as clean by older versions are corrected when the store opens.
+func TestOpenMigratesIncomplete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meles.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	run := &Run{ImageRef: "registry.example/app:1", Platforms: "all", Trigger: TriggerManual}
+	if err := s.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishRun(ctx, run.ID, skippedReport("x"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE runs SET status = 'clean'`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	got, err := s.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusIncomplete {
+		t.Errorf("status = %q", got.Status)
 	}
 }

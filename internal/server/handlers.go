@@ -346,7 +346,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "runs", page{Title: "Runs", Nav: "runs", Refresh: refresh, Data: map[string]any{
 		"Runs":     runs,
 		"Filter":   f,
-		"Statuses": []string{store.StatusInfected, store.StatusError, store.StatusClean, store.StatusRunning, store.StatusQueued},
+		"Statuses": []string{store.StatusInfected, store.StatusError, statusIncomplete, store.StatusClean, store.StatusRunning, store.StatusQueued},
 		"Page":     pg,
 		"Total":    total,
 		"HasPrev":  pg > 1,

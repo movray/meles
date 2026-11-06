@@ -13,6 +13,7 @@ type Stats struct {
 	Runs           int
 	Clean          int
 	Infected       int
+	Incomplete     int
 	Errors         int
 	// InfectedImages counts images whose latest finished run found malware.
 	InfectedImages int
@@ -28,8 +29,8 @@ func (s *Store) Stats(ctx context.Context, since time.Time) (Stats, error) {
 		return st, fmt.Errorf("stats: %w", err)
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*),
-		COALESCE(SUM(status = 'clean'), 0), COALESCE(SUM(status = 'infected'), 0), COALESCE(SUM(status = 'error'), 0)
-		FROM runs WHERE queued_at >= ?`, unix(since)).Scan(&st.Runs, &st.Clean, &st.Infected, &st.Errors)
+		COALESCE(SUM(status = 'clean'), 0), COALESCE(SUM(status = 'infected'), 0), COALESCE(SUM(status = 'incomplete'), 0), COALESCE(SUM(status = 'error'), 0)
+		FROM runs WHERE queued_at >= ?`, unix(since)).Scan(&st.Runs, &st.Clean, &st.Infected, &st.Incomplete, &st.Errors)
 	if err != nil {
 		return st, fmt.Errorf("stats: %w", err)
 	}
@@ -50,20 +51,21 @@ func (s *Store) Stats(ctx context.Context, since time.Time) (Stats, error) {
 // infected images first.
 func (s *Store) ImageStatus(ctx context.Context) ([]Run, error) {
 	return s.queryRuns(ctx, `SELECT `+runColumns+` FROM runs r LEFT JOIN scans s ON s.id = r.scan_id
-		WHERE r.id IN (SELECT MAX(id) FROM runs WHERE status IN ('clean', 'infected', 'error') GROUP BY image_ref)
-		ORDER BY CASE r.status WHEN 'infected' THEN 0 WHEN 'error' THEN 1 ELSE 2 END, r.image_ref`)
+		WHERE r.id IN (SELECT MAX(id) FROM runs WHERE status IN ('clean', 'infected', 'incomplete', 'error') GROUP BY image_ref)
+		ORDER BY CASE r.status WHEN 'infected' THEN 0 WHEN 'error' THEN 1 WHEN 'incomplete' THEN 2 ELSE 3 END, r.image_ref`)
 }
 
 // Day counts finished runs of one day.
 type Day struct {
-	Date     time.Time
-	Clean    int
-	Infected int
-	Errors   int
+	Date       time.Time
+	Clean      int
+	Infected   int
+	Incomplete int
+	Errors     int
 }
 
 // Total returns the number of runs of the day.
-func (d Day) Total() int { return d.Clean + d.Infected + d.Errors }
+func (d Day) Total() int { return d.Clean + d.Infected + d.Incomplete + d.Errors }
 
 // MaxDays bounds the days of Daily and ClusterDaily: each day is one entry
 // allocated up front.
@@ -90,7 +92,7 @@ func (s *Store) Daily(ctx context.Context, days int, loc *time.Location) ([]Day,
 		out[i].Date = first.AddDate(0, 0, i)
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT finished_at, status FROM runs WHERE finished_at >= ? AND status IN ('clean', 'infected', 'error')`, unix(first))
+	rows, err := s.db.QueryContext(ctx, `SELECT finished_at, status FROM runs WHERE finished_at >= ? AND status IN ('clean', 'infected', 'incomplete', 'error')`, unix(first))
 	if err != nil {
 		return nil, fmt.Errorf("daily runs: %w", err)
 	}
@@ -111,6 +113,8 @@ func (s *Store) Daily(ctx context.Context, days int, loc *time.Location) ([]Day,
 			out[i].Clean++
 		case StatusInfected:
 			out[i].Infected++
+		case StatusIncomplete:
+			out[i].Incomplete++
 		case StatusError:
 			out[i].Errors++
 		}

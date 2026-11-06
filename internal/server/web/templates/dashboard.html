@@ -39,7 +39,7 @@
   <div class="tile">
     <div class="tile-label">Runs, last 24 h</div>
     <div class="tile-value">{{num $d.Stats.Runs}}</div>
-    <div class="tile-sub">{{$d.Stats.Clean}} clean · {{$d.Stats.Infected}} infected</div>
+    <div class="tile-sub">{{$d.Stats.Clean}} clean · {{$d.Stats.Infected}} infected{{if $d.Stats.Incomplete}} · {{$d.Stats.Incomplete}} incomplete{{end}}</div>
   </div>
   <div class="tile{{if $d.Stats.Errors}} tile-warning{{end}}">
     <div class="tile-label">Errors, last 24 h</div>

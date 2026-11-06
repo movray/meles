@@ -32,8 +32,8 @@ func dailyChart(days []store.Day, loc *time.Location) template.HTML {
 		day := d.Date.In(loc)
 		cols[i] = stackDay{
 			date: day,
-			segs: []stackSeg{{"seg-infected", d.Infected}, {"seg-error", d.Errors}, {"seg-clean", d.Clean}},
-			tip:  fmt.Sprintf("%s: %d clean · %d infected · %d errors", day.Format("Mon 02.01.2006"), d.Clean, d.Infected, d.Errors),
+			segs: []stackSeg{{"seg-infected", d.Infected}, {"seg-error", d.Errors + d.Incomplete}, {"seg-clean", d.Clean}},
+			tip:  fmt.Sprintf("%s: %d clean · %d infected · %d errors · %d incomplete", day.Format("Mon 02.01.2006"), d.Clean, d.Infected, d.Errors, d.Incomplete),
 		}
 	}
 	return stackedDays("Finished runs per day by result", cols)

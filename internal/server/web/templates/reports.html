@@ -11,7 +11,8 @@
   <div class="tile"><div class="tile-label">Runs</div><div class="tile-value">{{num $d.Stats.Runs}}</div><div class="tile-sub">last {{$d.Days}} days</div></div>
   <div class="tile"><div class="tile-label">Clean</div><div class="tile-value">{{num $d.Stats.Clean}}</div><div class="tile-sub"><span aria-hidden="true">✓</span> fully scanned, no findings</div></div>
   <div class="tile{{if $d.Stats.Infected}} tile-critical{{end}}"><div class="tile-label">Infected</div><div class="tile-value">{{num $d.Stats.Infected}}</div><div class="tile-sub">runs with findings</div></div>
-  <div class="tile{{if $d.Stats.Errors}} tile-warning{{end}}"><div class="tile-label">Errors</div><div class="tile-value">{{num $d.Stats.Errors}}</div><div class="tile-sub">not fully scanned</div></div>
+  <div class="tile{{if $d.Stats.Errors}} tile-warning{{end}}"><div class="tile-label">Errors</div><div class="tile-value">{{num $d.Stats.Errors}}</div><div class="tile-sub">not scanned</div></div>
+  <div class="tile{{if $d.Stats.Incomplete}} tile-warning{{end}}"><div class="tile-label">Incomplete</div><div class="tile-value">{{num $d.Stats.Incomplete}}</div><div class="tile-sub">files skipped, never clean</div></div>
 </section>
 
 <section class="card">
@@ -29,8 +30,8 @@
     <summary>Show as table</summary>
     <div class="table-wrap">
     <table>
-      <thead><tr><th>Day</th><th class="num">Clean</th><th class="num">Infected</th><th class="num">Errors</th></tr></thead>
-      <tbody>{{range $d.Daily}}<tr><td>{{.Date.Format "Mon 2006-01-02"}}</td><td class="num">{{.Clean}}</td><td class="num">{{.Infected}}</td><td class="num">{{.Errors}}</td></tr>{{end}}</tbody>
+      <thead><tr><th>Day</th><th class="num">Clean</th><th class="num">Infected</th><th class="num">Errors</th><th class="num">Incomplete</th></tr></thead>
+      <tbody>{{range $d.Daily}}<tr><td>{{.Date.Format "Mon 2006-01-02"}}</td><td class="num">{{.Clean}}</td><td class="num">{{.Infected}}</td><td class="num">{{.Errors}}</td><td class="num">{{.Incomplete}}</td></tr>{{end}}</tbody>
     </table>
     </div>
   </details>
