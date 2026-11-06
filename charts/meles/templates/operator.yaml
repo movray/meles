@@ -171,7 +171,7 @@ spec:
             {{- end }}
             - {name: MELES_RESCAN_INTERVAL, value: {{ .Values.operator.rescanInterval | quote }}}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
-            - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | quote }}}
+            - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | default "4G" | quote }}}
             {{- if .Values.operator.gate.enabled }}
             - {name: MELES_GATE, value: "true"}
             - {name: MELES_GATE_FAIL_OPEN, value: {{ .Values.operator.gate.failOpen | quote }}}

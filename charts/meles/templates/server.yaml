@@ -121,7 +121,7 @@ spec:
             - {name: MELES_WORKERS, value: {{ .Values.server.workers | quote }}}
             - {name: MELES_CONCURRENCY, value: {{ .Values.server.concurrency | quote }}}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
-            - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | quote }}}
+            - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | default "4G" | quote }}}
             {{- if include "meles.clusterReports" . }}
             - {name: MELES_CLUSTER_REPORTS, value: "true"}
             - {name: MELES_CLUSTER_RESCAN, value: {{ .Values.server.clusterReports.rescan | quote }}}

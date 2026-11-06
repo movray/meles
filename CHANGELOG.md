@@ -3,6 +3,13 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## Unreleased
+
+### Fixed
+
+- `helm upgrade --reuse-values` from an older chart left `scan.maxLayerSize`
+  empty, and meles refused to start.
+
 ## v0.3.2
 
 Closes three gaps that let content pass unscanned, shows incomplete runs as
@@ -16,6 +23,9 @@ as clean has to learn the new status `incomplete`. Scans of images with large
 archives take longer with the new limits. The operator scans its images again,
 because the rules changed. With the CLI against your own clamd, add
 `meles-own.yar` to clamd's database, or `meles selftest --yara` fails.
+
+Do not upgrade this version with `helm upgrade --reuse-values`: meles does not
+start then. Pass your values with `-f`.
 
 ### Security
 

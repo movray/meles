@@ -81,7 +81,7 @@ spec:
             - {name: MELES_HARBOR_NAMESPACE, value: {{ . | quote }}}
             {{- end }}
             - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
-            - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | quote }}}
+            - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | default "4G" | quote }}}
             {{- if $v.ignoreRules }}
             - {name: MELES_IGNOREFILE, value: /ignore/ignore.yaml}
             {{- end }}

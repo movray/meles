@@ -38,7 +38,7 @@ spec:
               env:
                 {{- include "meles.clamdClientEnv" . | nindent 16 }}
                 - {name: MELES_MAX_FILE_SIZE, value: {{ .Values.scan.maxFileSize | quote }}}
-                - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | quote }}}
+                - {name: MELES_MAX_LAYER_SIZE, value: {{ .Values.scan.maxLayerSize | default "4G" | quote }}}
                 {{- if and .Values.mirror.enabled .Values.yara.defaultRules }}
                 - {name: MELES_YARA, value: "true"}
                 {{- end }}
