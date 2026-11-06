@@ -43,6 +43,47 @@
     });
   }
 
+  // Refresh button and interval, remembered in the browser. "auto" refreshes
+  // only while the server asks for it (data-refresh: a run is active); without
+  // JavaScript a meta tag does that. Pages that edit something and error pages,
+  // which may answer a POST, have no refresh,
+  // and a timer never throws away what was typed or reloads a hidden tab.
+  var refresh = document.getElementById("refresh");
+  if (refresh && !document.querySelector("main form[data-edit], main [data-no-refresh]")) {
+    var interval = document.getElementById("refresh-interval");
+    var typed = false;
+    var timer;
+    document.querySelector("main").addEventListener("input", function () {
+      typed = true;
+    });
+    var tick = function () {
+      var field = document.activeElement && document.activeElement.closest("main input, main textarea, main select");
+      if (!typed && !field && !document.hidden) location.reload();
+    };
+    var schedule = function () {
+      clearInterval(timer);
+      var seconds = interval.value === "auto" ? Number(document.body.dataset.refresh || 0) : Number(interval.value);
+      if (seconds > 0) timer = setInterval(tick, seconds * 1000);
+    };
+    try {
+      var saved = localStorage.getItem("meles-refresh");
+      if (saved) interval.value = saved;
+      if (interval.selectedIndex < 0) interval.value = "auto";
+    } catch (e) {}
+    interval.addEventListener("change", function () {
+      try {
+        if (interval.value === "auto") localStorage.removeItem("meles-refresh");
+        else localStorage.setItem("meles-refresh", interval.value);
+      } catch (e) {}
+      schedule();
+    });
+    document.getElementById("refresh-now").addEventListener("click", function () {
+      location.reload();
+    });
+    schedule();
+    refresh.hidden = false;
+  }
+
   // Forms with data-confirm ask before submitting.
   document.querySelectorAll("form[data-confirm]").forEach(function (form) {
     form.addEventListener("submit", function (e) {

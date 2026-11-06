@@ -4,7 +4,7 @@
   <h1>{{.Title}}</h1>
 </div>
 <div class="card form-card">
-  <form method="post" action="{{if $d.Scan}}/scans/{{$d.Scan.ID}}{{else}}/scans{{end}}">
+  <form method="post" action="{{if $d.Scan}}/scans/{{$d.Scan.ID}}{{else}}/scans{{end}}" data-edit>
     {{template "scanFields" $d}}
     {{if not $d.Scan}}
     <div class="field check">

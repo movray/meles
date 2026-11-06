@@ -9,7 +9,7 @@
 <div class="card form-card">
   <p class="note">An ignored entry stays in every report, marked with the rule, but no longer counts: a report with nothing else is <em>clean</em>, and the scan gate lets the image through. Only ignore what you checked is harmless. The rule applies to the operator's reports right away; the server's own runs use cluster-wide rules from their next run on.</p>
   {{with $e.Rule}}<p class="err">{{.}}</p>{{end}}
-  <form method="post" action="/ignores">
+  <form method="post" action="/ignores" data-edit>
     <input type="hidden" name="back" value="{{$in.Back}}">
     <input type="hidden" name="namespace" value="{{$in.Namespace}}">
     <input type="hidden" name="sha256" value="{{$in.SHA256}}">

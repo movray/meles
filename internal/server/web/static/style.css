@@ -108,6 +108,12 @@ nav[aria-label="Main"] a[aria-current="page"] { background: var(--accent-soft); 
 .theme-toggle[hidden] { display: none; }
 .theme-toggle svg { display: none; }
 .theme-toggle[data-mode="auto"] .i-auto, .theme-toggle[data-mode="light"] .i-light, .theme-toggle[data-mode="dark"] .i-dark { display: block; }
+.refresh { display: flex; align-items: stretch; }
+.refresh[hidden] { display: none; }
+.refresh button, .refresh select { min-height: 32px; padding: 4px 8px; font-size: 0.85rem; font-weight: 500; background: var(--surface); color: var(--ink); border: 1px solid var(--border); width: auto; }
+.refresh button { display: flex; align-items: center; border-radius: 6px 0 0 6px; border-right: 0; }
+.refresh select { border-radius: 0 6px 6px 0; }
+.refresh button:hover, .refresh select:hover { background: var(--surface-2); filter: none; }
 .engine { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--ink-2); }
 .engine .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--axis); }
 .engine.ok .dot { background: var(--good); }
