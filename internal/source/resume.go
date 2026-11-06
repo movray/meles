@@ -7,8 +7,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
 // maxResumeFailures bounds the attempts to resume a download in a row
@@ -24,10 +29,16 @@ const maxResumeFailures = 3
 //
 // It sits below go-containerregistry's auth transport: a resumed request is
 // a clone of the original one, with its Authorization header. After a
-// redirect (e.g. to a CDN) the redirected request is resumed.
+// redirect (e.g. to a CDN) the redirected request is resumed. Both expire
+// during a long scan: the token of a registry after minutes, the signed URL
+// of a CDN within an hour. A rejected request then goes back to the
+// registry with a new token, see renew.
 type resumingTransport struct {
 	inner http.RoundTripper
 	log   *slog.Logger
+	// keychain authenticates at the registry for renew; without one, a
+	// rejected resume fails.
+	keychain authn.Keychain
 	// backoff is the pause before the n-th attempt in a row (n >= 1).
 	backoff func(n int) time.Duration
 }
@@ -127,10 +138,19 @@ func (b *resumingBody) resume() error {
 func (b *resumingBody) reopen(ctx context.Context) (io.ReadCloser, error) {
 	req := b.req.Clone(ctx)
 	// With an explicit end: some registries reject "bytes=N-".
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", b.off, b.size-1))
+	byteRange := fmt.Sprintf("bytes=%d-%d", b.off, b.size-1)
+	req.Header.Set("Range", byteRange)
 	res, err := b.t.inner.RoundTrip(req)
 	if err != nil {
 		return nil, err
+	}
+	if (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) && b.t.keychain != nil {
+		res.Body.Close()
+		if res, err = b.t.renew(ctx, origin(b.req), byteRange); err != nil {
+			return nil, err
+		}
+		// Further resumes use the new URL and go on from there.
+		b.req = res.Request
 	}
 	switch res.StatusCode {
 	case http.StatusPartialContent:
@@ -155,3 +175,48 @@ func (b *resumingBody) reopen(ctx context.Context) (io.ReadCloser, error) {
 }
 
 func (b *resumingBody) Close() error { return b.body.Close() }
+
+// origin returns the URL of the request at the start of req's redirects:
+// the one at the registry.
+func origin(req *http.Request) *url.URL {
+	for req.Response != nil && req.Response.Request != nil {
+		req = req.Response.Request
+	}
+	return req.URL
+}
+
+// renew requests a byte range of the blob at u, a URL of the registry, with
+// a new token. The redirect it follows leads to a newly signed URL.
+func (t *resumingTransport) renew(ctx context.Context, u *url.URL, byteRange string) (*http.Response, error) {
+	path, _, ok := strings.Cut(strings.TrimPrefix(u.Path, "/v2/"), "/blobs/")
+	if !ok {
+		return nil, fmt.Errorf("renew access: %s is not a blob URL", u.Host+u.Path)
+	}
+	var nopts []name.Option
+	if u.Scheme == "http" {
+		nopts = append(nopts, name.Insecure)
+	}
+	repo, err := name.NewRepository(u.Host+"/"+path, nopts...)
+	if err != nil {
+		return nil, fmt.Errorf("renew access: %w", err)
+	}
+	auth, err := authn.Resolve(ctx, t.keychain, repo)
+	if err != nil {
+		return nil, fmt.Errorf("renew access to %s: %w", repo, err)
+	}
+	t.log.Info("access to the download expired, requesting it anew", "repository", repo.String())
+	rt, err := transport.NewWithContext(ctx, repo.Registry, auth, t.inner, []string{repo.Scope(transport.PullScope)})
+	if err != nil {
+		return nil, fmt.Errorf("renew access to %s: %w", repo, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("renew access to %s: %w", repo, err)
+	}
+	req.Header.Set("Range", byteRange)
+	res, err := (&http.Client{Transport: rt}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("renew access to %s: %w", repo, err)
+	}
+	return res, nil
+}

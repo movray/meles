@@ -71,7 +71,10 @@ meles therefore resumes a download that breaks off: the transport below
 go-containerregistry's auth repeats the request with
 `Range: bytes=<offset>-<end>` (some registries reject an open end) and
 continues the body seamlessly, so the blob digest is still verified at its
-end. After a redirect (e.g. to a CDN) the redirected request is resumed. A
+end. After a redirect (e.g. to a CDN) the redirected request is resumed.
+Tokens and signed CDN URLs expire during a long scan, Docker Hub's after 5
+minutes and within an hour. If a resume is rejected with 401 or 403, meles asks
+the registry again with a new token and follows its redirect to a new URL. A
 server that ignores `Range` sends the blob whole and the bytes already read
 are skipped. Three attempts in a row without new bytes end the scan with
 the original error. Rejected: spooling layers to disk (needs space up to

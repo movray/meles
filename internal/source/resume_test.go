@@ -207,3 +207,109 @@ func TestFetchResumesLayer(t *testing.T) {
 		t.Errorf("%d blob requests: the download did not break off", blobGets.Load())
 	}
 }
+
+// TestFetchRenewsAccess reads a layer whose download breaks off after the
+// access to it expired: a signed CDN URL, or the token of a registry that
+// serves the blob itself.
+func TestFetchRenewsAccess(t *testing.T) {
+	img, err := testimage.Build([]testimage.Layer{{CreatedBy: "COPY big /", Files: map[string]string{"/big": string(randomBytes(2 << 20))}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name     string
+		redirect bool
+	}{
+		{"signed CDN URL", true},
+		{"registry token", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := registry.New()
+			// generation invalidates tokens and signed URLs issued before.
+			var generation, blobGets, broken atomic.Int32
+			var issued atomic.Int32
+			valid := func(v string) bool { return v == strconv.Itoa(int(generation.Load())) }
+			// serve breaks off the first read of the layer and expires the
+			// access with it.
+			serve := func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Range") == "" && blobGets.Add(1) == 2 && broken.CompareAndSwap(0, 1) {
+					defer generation.Add(1)
+					reg.ServeHTTP(&limitedWriter{ResponseWriter: w, limit: 300 << 10}, r)
+					return
+				}
+				reg.ServeHTTP(w, r)
+			}
+			cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if !valid(r.URL.Query().Get("sig")) {
+					http.Error(w, "expired", http.StatusForbidden)
+					return
+				}
+				r2 := r.Clone(r.Context())
+				r2.URL.RawQuery = ""
+				serve(w, r2)
+			}))
+			defer cdn.Close()
+			var srv *httptest.Server
+			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/token" {
+					issued.Add(1)
+					fmt.Fprintf(w, `{"token":%q}`, strconv.Itoa(int(generation.Load())))
+					return
+				}
+				if !valid(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
+					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm=%q,service="test"`, srv.URL+"/token"))
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/blobs/") {
+					if tt.redirect {
+						http.Redirect(w, r, cdn.URL+r.URL.Path+"?sig="+strconv.Itoa(int(generation.Load())), http.StatusTemporaryRedirect)
+						return
+					}
+					serve(w, r)
+					return
+				}
+				reg.ServeHTTP(w, r)
+			}))
+			defer srv.Close()
+
+			ref := strings.TrimPrefix(srv.URL, "http://") + "/renew/test:latest"
+			r, err := name.ParseReference(ref, name.Insecure)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := remote.Write(r, img); err != nil {
+				t.Fatal(err)
+			}
+			blobGets.Store(0)
+			issued.Store(0)
+
+			fetched, err := Fetch(context.Background(), ref, Options{Insecure: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			layers, err := fetched.Platforms[0].Image.Layers()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rc, err := layers[0].Compressed()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rc.Close()
+			n, err := io.Copy(io.Discard, rc)
+			if err != nil {
+				t.Fatalf("read layer: %v", err)
+			}
+			if want, _ := layers[0].Size(); n != want {
+				t.Errorf("read %d bytes, want %d", n, want)
+			}
+			if generation.Load() == 0 {
+				t.Error("the download did not break off")
+			}
+			if issued.Load() < 2 {
+				t.Errorf("%d tokens issued, want a new one after the break", issued.Load())
+			}
+		})
+	}
+}

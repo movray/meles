@@ -270,6 +270,7 @@ func Fetch(ctx context.Context, ref string, opts Options) (*Image, error) {
 	// break off while meles waits for clamd.
 	ctx = withPolicy(ctx, opts)
 	rt := newResumingTransport(sharedTransport, opts.Logger)
+	rt.keychain = kc
 	desc, err := get(ctx, r, nopts, opts, remote.WithContext(ctx), remote.WithAuthFromKeychain(kc), remote.WithTransport(rt))
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", ref, err)
