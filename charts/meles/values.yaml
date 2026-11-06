@@ -21,6 +21,10 @@ scan:
   # keeps each stream in a temporary file in the container while it scans
   # it (up to maxThreads x maxFileSize of ephemeral storage).
   maxFileSize: 768M
+  # A layer larger than this (uncompressed) ends the scan with an error, it
+  # protects against tar bombs. Layers are streamed, so a higher value costs
+  # time, not memory. Machine learning images can need more than the default.
+  maxLayerSize: 4G
   # Mirrors the server and the operator pull from first, e.g. a Harbor
   # proxy cache project per upstream registry; the registry itself is the
   # fallback (as in containerd). Mirrors are trusted for tags, digests are
@@ -162,20 +166,22 @@ clamd:
   # binaries); raised to scan.maxFileSize if lower. Also clamd's
   # MaxFileSize, which applies to unpacked content (meles limits the files
   # themselves with scan.maxFileSize). Files beyond it are skipped
-  # (Heuristics.Limits.Exceeded.MaxScanSize or .MaxFileSize).
-  maxScanSize: 100M
+  # (Heuristics.Limits.Exceeded.MaxScanSize or .MaxFileSize). At most 2047M.
+  # clamd unpacks into the ephemeral storage of its container, up to this
+  # much per file it scans at the same time.
+  maxScanSize: 2047M
   # Maximum scan time per file in milliseconds (clamd default 120000). The
-  # meles clients wait this long plus a minute (at least 5 minutes).
-  # Large compressed archives such as php.tar.xz can need more; files beyond
-  # it are skipped (Heuristics.Limits.Exceeded.MaxScanTime).
-  maxScanTime: 120000
+  # meles clients wait this long plus a minute (at least 5 minutes). Large
+  # compressed archives need minutes on slow CPUs; files beyond it are
+  # skipped (Heuristics.Limits.Exceeded.MaxScanTime).
+  maxScanTime: 600000
   # Maximum number of files scanned in an archive (clamd default 10000).
-  # Source tarballs can have more (e.g. php.tar.xz in the Nextcloud image);
-  # beyond it the archive is skipped (Heuristics.Limits.Exceeded.MaxFiles).
-  maxFiles: 10000
-  # Maximum nesting of archives (clamd default 17). Source tarballs can nest
-  # deeper (php.tar.xz in the Nextcloud image); beyond it the file is
-  # skipped (Heuristics.Limits.Exceeded.MaxRecursion).
+  # Source tarballs, JDK images and WAR files have more; beyond it the
+  # archive is skipped (Heuristics.Limits.Exceeded.MaxFiles).
+  maxFiles: 100000
+  # Maximum nesting of archives (clamd default 17); beyond it the file is
+  # skipped (Heuristics.Limits.Exceeded.MaxRecursion). php.tar.xz in the PHP
+  # images stays skipped even with 64.
   maxRecursion: 17
   maxThreads: 12
   # clamd has no authentication of its own. With auth enabled, clamd listens
