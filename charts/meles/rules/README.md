@@ -1,17 +1,19 @@
 # Default YARA rules
 
-`meles.yar` holds the YARA rules meles ships by default. clamd runs them with
+`meles.yar` and `meles-own.yar` hold the YARA rules meles ships by default.
+clamd runs them with
 ClamAV's own YARA support; the chart serves them from the database mirror and
 freshclam loads them into every clamd pod (see `yara` in `values.yaml`).
 
-The rules are not part of meles' own code and are not under its Apache-2.0
-license: every rule keeps the license of its source (table below, license
+The rules are not part of meles' code and are not under its Apache-2.0
+license: every rule in `meles.yar` keeps the license of its source (table below, license
 texts in [`LICENSES/`](LICENSES)). Each rule's `meta` block names its
 `author`, the original rule (`source_url`) and the license (`license_url`).
 
 ## Selection
 
-Taken from the [YARA Forge](https://yarahq.github.io/) package 20261018
+`meles-own.yar` holds rules written for meles (author "meles project"). The
+rest is taken from the [YARA Forge](https://yarahq.github.io/) package 20261018
 (core set, plus 11 cryptominer rules from the full set). A rule is included
 only if
 
@@ -33,6 +35,7 @@ that are empty strings are removed, ClamAV's parser rejects them.
 
 | Source | Rules | License |
 |---|---:|---|
+| meles project (`meles-own.yar`) | 3 | [Detection Rule License 1.1](LICENSES/DRL-1.1.txt) |
 | [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base) (Florian Roth, Nextron Systems, and others) | 81 | [Detection Rule License 1.1](LICENSES/DRL-1.1.txt) |
 | [volexity/threat-intel](https://github.com/volexity/threat-intel) | 18 | [BSD-2-Clause](LICENSES/BSD-2-Clause-volexity_threat-intel.txt) |
 | [ditekshen/detection](https://github.com/ditekshen/detection) | 17 | [BSD-2-Clause](LICENSES/BSD-2-Clause-ditekshen_detection.txt) |
@@ -50,7 +53,7 @@ reports.
 
 ## Changing the rules
 
-1. Edit `meles.yar`. A new rule needs `author`, `source_url` and a
+1. Edit `meles-own.yar` or, for a rule from another source, `meles.yar`. A new rule needs `author`, `source_url` and a
    `license_url` of a source in the table above (add the source to the
    table, to `LICENSES/` and to `hack/yaraindex/main.go` otherwise).
 2. `go generate ./internal/yararules` updates the embedded index.

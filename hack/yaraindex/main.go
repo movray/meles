@@ -21,6 +21,7 @@ import (
 // licenses maps the repository of a rule's license_url to its SPDX license.
 // Keep in sync with charts/meles/rules/README.md.
 var licenses = map[string]string{
+	"github.com/movray/meles":                           "DRL-1.1",
 	"github.com/Neo23x0/signature-base":                 "DRL-1.1",
 	"github.com/SEKOIA-IO/Community":                    "DRL-1.1",
 	"github.com/ditekshen/detection":                    "BSD-2-Clause",

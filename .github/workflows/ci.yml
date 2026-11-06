@@ -136,6 +136,9 @@ jobs:
           check eicar-whiteout 1
           check eicar-opaque 1
           check yara-xmrig-config 1
+          check yara-xmrig-proxy 1
+          check yara-xmrig-pools 1
+          check yara-ariominer 1
           # Local inputs (--input): an OCI layout and an old-style docker
           # save tar of the whiteout case, written by crane.
           crane="go run github.com/google/go-containerregistry/cmd/crane@v0.22.1"

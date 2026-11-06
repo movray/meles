@@ -41,10 +41,10 @@ func TestRun(t *testing.T) {
 		failed int
 		err    bool
 	}{
-		{name: "engine finds everything", eng: &fake.Engine{}, checks: 4},
-		{name: "engine without signatures", eng: blind{&fake.Engine{}}, checks: 4, failed: 3},
+		{name: "engine finds everything", eng: &fake.Engine{}, checks: 5},
+		{name: "engine without signatures", eng: blind{&fake.Engine{}}, checks: 5, failed: 4},
 		// The fake engine has no YARA rules, like a clamd without them.
-		{name: "rules not loaded", eng: &fake.Engine{}, yara: true, checks: 5, failed: 1},
+		{name: "rules not loaded", eng: &fake.Engine{}, yara: true, checks: 9, failed: 4},
 		{name: "engine fails", eng: &fake.Engine{Err: errors.New("connection lost")}, err: true},
 	}
 	for _, tt := range tests {

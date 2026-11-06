@@ -65,19 +65,37 @@ func Cases() []Case {
 			{"RUN rm -rf /data && mkdir /data && echo replaced > /data/readme.txt",
 				map[string]string{"/data/.wh..wh..opq": "", "/data/readme.txt": "replaced\n"}},
 		}, Want: []string{"/data/eicar.com deleted"}},
+		{Name: "eicar-whiteout-content", Layers: []Layer{base,
+			{"COPY .wh.eicar.com /opt/", map[string]string{"/opt/.wh.eicar.com": EICAR()}},
+		}, Want: []string{"/opt/.wh.eicar.com deleted"}},
 	}
 }
 
 // YaraCases returns test images for the default YARA rules
-// (charts/meles/rules); clamd must have loaded them. The file is a harmless
-// XMRig configuration that SIGNATURE_BASE_XMRIG_Monero_Miner_Config
-// matches.
+// (charts/meles/rules); clamd must have loaded them. The files are harmless:
+// old and current XMRig configurations and ELF headers with the strings of
+// xmrig-proxy and ariominer, but no program.
 func YaraCases() []Case {
 	config := "{\n    \"algo\": \"cryptonight\",  // cryptonight (default) or cryptonight-lite\n    \"threads\": 1\n}\n"
+	// Written with _ and put together at runtime: meles is an ELF binary
+	// itself and must not match MELES_Miner_XMRig_Proxy.
+	proxy := strings.NewReplacer("xmrig_proxy", "xmrig-proxy", "xmrig_com", "xmrig.com").
+		Replace("\x7fELF\x00Usage: xmrig_proxy [OPTIONS]\x00donate.ssl.xmrig_com\x00")
+	ariominer := "\x7fELF\x00" + strings.ReplaceAll("Arionum_CPU/GPU_Miner", "_", " ") + "\x00ariopool_client\x00"
+	pools := `{"donate-level": 1, "pools": [{"url": "pool.invalid:3333", "user": "wallet"}]}`
 	return []Case{
 		{Name: "yara-xmrig-config", Layers: []Layer{base,
 			{"COPY config.json /opt/miner/", map[string]string{"/opt/miner/config.json": config}},
 		}, Want: []string{"/opt/miner/config.json present"}},
+		{Name: "yara-xmrig-proxy", Layers: []Layer{base,
+			{"COPY xmrig-proxy /opt/miner/", map[string]string{"/opt/miner/xmrig-proxy": proxy}},
+		}, Want: []string{"/opt/miner/xmrig-proxy present"}},
+		{Name: "yara-ariominer", Layers: []Layer{base,
+			{"COPY ariominer /opt/miner/", map[string]string{"/opt/miner/ariominer": ariominer}},
+		}, Want: []string{"/opt/miner/ariominer present"}},
+		{Name: "yara-xmrig-pools", Layers: []Layer{base,
+			{"COPY pools.json /opt/miner/", map[string]string{"/opt/miner/pools.json": pools}},
+		}, Want: []string{"/opt/miner/pools.json present"}},
 	}
 }
 

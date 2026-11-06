@@ -34,9 +34,9 @@ With --yara it also checks that clamd has loaded the default YARA rules
 			}
 			for _, c := range res.Checks {
 				if c.Pass() {
-					fmt.Fprintf(out, "PASS  %-17s %v\n", c.Name, c.Got)
+					fmt.Fprintf(out, "PASS  %-22s %v\n", c.Name, c.Got)
 				} else {
-					fmt.Fprintf(out, "FAIL  %-17s got %v, want %v\n", c.Name, c.Got, c.Want)
+					fmt.Fprintf(out, "FAIL  %-22s got %v, want %v\n", c.Name, c.Got, c.Want)
 				}
 			}
 			if err != nil {

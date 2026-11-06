@@ -158,14 +158,15 @@ imagePullSecrets:
 {{- if .Values.mirror.enabled }}
 {{- if .Values.yara.defaultRules }}
 meles.yar
+meles-own.yar
 {{ end }}
 {{- range .Values.yara.extra }}
 {{- range .files }}
 {{- if not (hasSuffix ".yar" .) }}
 {{- fail (printf "yara.extra: %q must end in .yar" .) }}
 {{- end }}
-{{- if eq . "meles.yar" }}
-{{- fail "yara.extra: meles.yar is the name of the default rules" }}
+{{- if has . (list "meles.yar" "meles-own.yar") }}
+{{- fail (printf "yara.extra: %s is the name of default rules" .) }}
 {{- end }}
 {{ . }}
 {{ end }}

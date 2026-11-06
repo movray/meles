@@ -9,4 +9,6 @@ metadata:
 data:
   meles.yar: |-
     {{- .Files.Get "rules/meles.yar" | nindent 4 }}
+  meles-own.yar: |-
+    {{- .Files.Get "rules/meles-own.yar" | nindent 4 }}
 {{- end }}
