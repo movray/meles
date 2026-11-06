@@ -10,7 +10,7 @@ fail=0
 for f in "$@"; do
   out=$("$yr" check "$f" 2>&1)
   printf '%s\n' "$out"
-  if ! printf '%s\n' "$out" | grep -qE "^\[ (OK|WARN) \] $f\$"; then
+  if ! printf '%s\n' "$out" | grep -qE "^\[ (OK|PASS|WARN) \] $f\$"; then
     echo "$f: YARA-X does not compile it"
     fail=1
   fi
