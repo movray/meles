@@ -3,6 +3,66 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## v0.3.2
+
+Closes three gaps that let content pass unscanned, shows incomplete runs as
+such, and is the first release tested against popular and known malicious
+images: see [docs/popular-images.md](docs/popular-images.md).
+
+### Upgrade
+
+A client of the API that treats every status other than `infected` and `error`
+as clean has to learn the new status `incomplete`. Scans of images with large
+archives take longer with the new limits. The operator scans its images again,
+because the rules changed. With the CLI against your own clamd, add
+`meles-own.yar` to clamd's database, or `meles selftest --yara` fails.
+
+### Security
+
+- The server stored runs with skipped files as `clean` and showed "No malware
+  found". They now have the status `incomplete` in the UI and the API, like in
+  the CLI and the operator, and count as needing attention. Stored runs are
+  corrected at the first start.
+- Whiteout entries with content were not scanned: a file named `.wh.<name>`
+  or `.wh..wh..opq` could carry malware through a scan as clean. A runtime
+  never unpacks such an entry, but the image ships it. Its content is now
+  scanned and a finding has the status `deleted`. The selftest has a new case
+  for it, `eicar-whiteout-content`.
+- Data after the end of a layer's tar archive was read but not scanned. It now
+  makes the scan `Incomplete` (`meles.Unsupported.TrailingData`), and it
+  counts against `--max-layer-size`.
+- Sparse files could expand far beyond `--max-layer-size`, because the limit
+  only counted the bytes read. It now counts what the entries declare, across
+  the whole layer.
+- The mirror installs cvdupdate and its dependencies with pinned hashes
+  (`charts/meles/files/mirror/requirements.txt`) instead of the newest
+  matching version from PyPI. Dependabot updates the file.
+
+### Added
+
+- Fuzz tests for the layer extractor: `make fuzz`.
+- A refresh button with an interval in the header of the web UI. The browser
+  remembers the interval; `Auto` refreshes while a run is active, as before.
+
+- Chart value `scan.maxLayerSize` for `--max-layer-size`. Machine learning
+  images can have layers above the default of 4G.
+- YARA rules of our own in `meles-own.yar`, for xmrig-proxy, ariominer and the
+  JSON configuration of XMRig and xmrig-proxy.
+
+### Changed
+
+- Higher default limits in the chart, because popular images stayed
+  `Incomplete` with the old ones: `clamd.maxFiles` 100000 (was 10000),
+  `clamd.maxScanTime` 600000 (was 120000), `clamd.maxScanSize` 2047M (in effect
+  768M before). Images with large archives take up to twice as long, in the
+  worst case 3.6 times, and clamd can unpack more into its ephemeral storage.
+
+### Fixed
+
+- A long scan could end with an error: a resumed layer download failed with
+  403 once the signed CDN URL had expired, and with 401 once the token of the
+  registry had. meles now asks the registry for new access.
+
 ## v0.3.1
 
 Shows in the UI whether meles still finds what it must find.

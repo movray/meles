@@ -5,10 +5,12 @@
 # meles
 
 **meles** is a malware scanner for container images: one command on an image
-reference, no Docker daemon, CI-friendly exit codes. It is meant to run next
-to a vulnerability scanner, not to replace one. In Kubernetes it also scans
-every image your pods run and, if you want, holds new pods until their image
-is scanned.
+reference, no Docker daemon, CI-friendly exit codes. In Kubernetes it also
+scans every image your pods run and, if you want, holds new pods until their
+image is scanned.
+
+meles inspects what an image contains before it runs. It complements
+vulnerability scanners and runtime detection such as Falco; it replaces neither.
 
 The name comes from *Meles meles*, the European badger – it digs through the
 layers.
@@ -97,6 +99,8 @@ substitute for image signing, SBOMs or runtime detection.
   from a first scan to the scan gate in a cluster
 - [docs/results.md](docs/results.md): what Clean, Infected, Incomplete and
   Error mean, what Clean does not guarantee, limits and false positives
+- [docs/popular-images.md](docs/popular-images.md): results of scanning 47
+  popular images and 14 known malicious images
 - this README: using meles (CLI, web UI, Kubernetes, Harbor)
 - [docs/architecture.md](docs/architecture.md): how it works, where state
   lives, security model, design decisions
@@ -442,7 +446,9 @@ malware-scan:
 make run-server          # http://127.0.0.1:8080, database in meles.db
 ```
 
-The UI follows the system's light or dark mode; the switch in the header
+The button in the header refreshes the page, and the list next to it sets an
+interval; the browser remembers it. `Auto` refreshes only while a run is
+active. The UI follows the system's light or dark mode; the switch in the header
 overrides it for the browser (stored in its local storage).
 
 Runs and reports are stored in SQLite. The server has **no login of its own**:
@@ -495,9 +501,10 @@ Important values (see `charts/meles/values.yaml`):
 |---|---|---|
 | `imagePullSecrets` | `[]` | pull secrets for the meles image |
 | `scan.maxFileSize` | `768M` | `--max-file-size` of meles and clamd's `StreamMaxLength` (`MaxScanSize`/`MaxFileSize` at least this); at most `2047M` |
-| `clamd.maxScanSize` | `100M` | clamd's `MaxScanSize` and `MaxFileSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
-| `clamd.maxScanTime` | `120000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more. `--clamd-timeout` of the meles clients follows it (plus a minute, at least 5 minutes) |
-| `clamd.maxFiles` | `10000` | clamd's `MaxFiles`: files scanned per archive |
+| `scan.maxLayerSize` | `4G` | `--max-layer-size` of meles: hard limit per layer (uncompressed); machine learning images can need more |
+| `clamd.maxScanSize` | `2047M` | clamd's `MaxScanSize` and `MaxFileSize`: data scanned per file including unpacked content; at least `scan.maxFileSize` |
+| `clamd.maxScanTime` | `600000` | clamd's `MaxScanTime` in milliseconds; larger compressed archives may need more. `--clamd-timeout` of the meles clients follows it (plus a minute, at least 5 minutes) |
+| `clamd.maxFiles` | `100000` | clamd's `MaxFiles`: files scanned per archive |
 | `clamd.maxRecursion` | `17` | clamd's `MaxRecursion`: nesting of archives |
 | `clamd.detectPUA` | `false` | ClamAV's `PUA.*` signatures (potentially unwanted applications); mostly false positives in container images |
 | `yara.defaultRules` | `true` | the chart's YARA rules (see below) |
@@ -541,8 +548,8 @@ Important values (see `charts/meles/values.yaml`):
 `charts/meles/rules/meles.yar` holds about 140 YARA rules from open sources
 (signature-base, Volexity, ditekSHen, SEKOIA and others), selected for
 containers: cryptominers, Linux malware, webshells and attacks on Docker
-and Kubernetes. They were checked against the images of a typical cluster
-without a false positive. The mirror serves them, freshclam loads them into
+and Kubernetes. `meles-own.yar` adds rules written for meles. They were
+checked against the images of a typical cluster without a false positive. The mirror serves them, freshclam loads them into
 every clamd pod, and clamd runs them with ClamAV's YARA support; findings
 look like `YARA.SIGNATURE_BASE_XMRIG_Monero_Miner.UNOFFICIAL`.
 
@@ -563,8 +570,8 @@ hash of the loaded rules to the signature version (`28164+rules.3f2a…`), so
 the operator and the layer caches rescan as after a signature update.
 Without `clamd.auth` (no proxy) new rules do not trigger rescans.
 
-With the CLI against your own clamd, put `meles.yar` into clamd's database
-directory and reload clamd.
+With the CLI against your own clamd, put `meles.yar` and `meles-own.yar` into
+clamd's database directory and reload clamd.
 
 ### Operator
 

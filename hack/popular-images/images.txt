@@ -1,0 +1,56 @@
+# Popular images for hack/popular-images/run.sh. One reference per line.
+# Base images
+alpine:latest
+ubuntu:latest
+debian:latest
+busybox:latest
+fedora:latest
+amazonlinux:latest
+registry.access.redhat.com/ubi9/ubi:latest
+gcr.io/distroless/static-debian12:latest
+cgr.dev/chainguard/static:latest
+# Languages
+python:latest
+node:latest
+golang:latest
+eclipse-temurin:latest
+php:latest
+ruby:latest
+rust:latest
+mcr.microsoft.com/dotnet/aspnet:9.0
+# Web and proxies
+nginx:latest
+httpd:latest
+traefik:latest
+haproxy:latest
+caddy:latest
+envoyproxy/envoy:v1.34-latest
+# Databases and queues
+postgres:latest
+mysql:latest
+mariadb:latest
+mongo:latest
+redis:latest
+memcached:latest
+rabbitmq:latest
+elasticsearch:9.5.5
+# Applications
+wordpress:latest
+nextcloud:latest
+grafana/grafana:latest
+prom/prometheus:latest
+hashicorp/vault:latest
+quay.io/keycloak/keycloak:latest
+sonarqube:latest
+jenkins/jenkins:lts
+gitlab/gitlab-ce:latest
+# Kubernetes
+registry.k8s.io/pause:3.10
+registry.k8s.io/kube-apiserver:v1.33.0
+quay.io/argoproj/argocd:latest
+quay.io/prometheus/node-exporter:latest
+rancher/mirrored-library-traefik:3.7.4
+# Large images
+pytorch/pytorch:latest
+# meles itself
+ghcr.io/movray/meles:latest
