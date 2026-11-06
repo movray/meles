@@ -33,10 +33,12 @@ data:
     #!/bin/sh
     set -eu
     export HOME=/tmp PATH="/tmp/.local/bin:$PATH"
-    pip install --quiet --user --no-cache-dir "cvdupdate>=1.1,<2"
+    pip install --quiet --user --no-cache-dir --require-hashes --no-deps --only-binary :all: -r /scripts/requirements.txt
     cvd config set --dbdir /mirror/db --logdir /tmp/cvd-logs
     while true; do
       cvd update || echo "cvd update failed, retrying in an hour" >&2
       sleep 3600
     done
+  requirements.txt: |
+    {{- .Files.Get "files/mirror/requirements.txt" | nindent 4 }}
 {{- end }}
