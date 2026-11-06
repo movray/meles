@@ -45,7 +45,9 @@ The status of a finding says where the file is:
   and anyone can read it from that layer. It does not show up in a running
   container, so check how it got there: it may be left over from a build
   step. Deleting a secret or a tool in a later layer never removes it from
-  the image.
+  the image. A whiteout entry that carries content of its own is also
+  `deleted`: a runtime never unpacks it, but it is shipped, and no normal
+  build creates one.
 
 Each platform of a multi-arch image is scanned, and each finding names its
 platform: a finding in `linux/arm64` is a finding, even if you only run
@@ -82,6 +84,7 @@ signature you can use in an ignore rule:
 | `meles.Limits.StreamMaxLength` | clamd refused the stream as too large. | Raise `StreamMaxLength` in clamd. The chart keeps it in line with `scan.maxFileSize`. |
 | `Heuristics.Limits.Exceeded.*` | clamd could not finish the file within its limits, for example with very large binaries or deeply nested archives. | Raise the limit in the name (`clamd.maxScanSize`, `maxScanTime`, `maxFiles`, `maxRecursion`), then rescan. |
 | `meles.Unsupported.TarEntry` | The layer has a tar entry of a type meles does not read. | Look at the file. Ignore it if it is harmless. |
+| `meles.Unsupported.TrailingData` | The layer has data after the end of its tar archive. No container sees it, but the image ships it, and normal image builders do not produce it. | Find out how the layer was built. The JSON report has its `sha256`. |
 
 Some files stay `Incomplete` at any limit: a very large binary may exceed
 `MaxScanSize` even at the maximum, and a test file that unpacks to itself

@@ -17,6 +17,7 @@ Building, testing and releasing meles. How it works inside is described in
 ```sh
 make build              # bin/meles
 make test               # unit tests (race detector)
+make fuzz               # the layer extractor, 1 minute per target (FUZZTIME=5m)
 make test-integration   # against a real clamd (CLAMD=unix:///run/clamav/clamd.ctl)
 make test-envtest       # operator and cluster-report tests against a real API server and etcd (downloads them)
 make test-rules         # the chart's Prometheus alerts with promtool (PROMTOOL=<path>)

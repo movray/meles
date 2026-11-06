@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 )
@@ -14,7 +15,7 @@ type entry struct {
 	typeflag byte
 }
 
-func tarball(t *testing.T, entries ...entry) *bytes.Reader {
+func tarball(t testing.TB, entries ...entry) *bytes.Reader {
 	t.Helper()
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
@@ -165,4 +166,146 @@ func TestHiddenBy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWalkWhiteoutContent(t *testing.T) {
+	tests := []struct {
+		name, entry string
+		wantScanned bool
+	}{
+		{"empty whiteout", "tmp/.wh.a", false},
+		{"whiteout with content", "tmp/.wh.a", true},
+		{"opaque with content", "tmp/.wh..wh..opq", true},
+		{"bare prefix with content", "tmp/.wh.", true},
+		{"metadata with content", "tmp/.wh..wh.plnk", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			content := ""
+			if tc.wantScanned {
+				content = "payload"
+			}
+			var got []string
+			l, err := Walk(tarball(t, entry{name: tc.entry, content: content}), Limits{}, func(f File) error {
+				got = append(got, f.Path)
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := CleanPath(tc.entry)
+			if scanned := len(got) == 1 && got[0] == p; scanned != tc.wantScanned {
+				t.Errorf("scanned = %v, want %v", got, tc.wantScanned)
+			}
+			if l.Entries[p] {
+				t.Errorf("%s counts as a file of the final filesystem", p)
+			}
+			if j, how := HiddenBy(p, 0, []*Layer{l}); tc.wantScanned && (j != 0 || how != "whiteout") {
+				t.Errorf("HiddenBy = %d, %q", j, how)
+			}
+		})
+	}
+}
+
+func TestWalkTrailingData(t *testing.T) {
+	archive := func(t *testing.T) []byte {
+		b, err := io.ReadAll(tarball(t, entry{name: "a", content: "x"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	tests := []struct {
+		name  string
+		extra []byte
+		want  int
+	}{
+		{"none", nil, 0},
+		{"zero padding", make([]byte, 10240), 0},
+		{"data", []byte("hidden"), 1},
+		{"data after padding", append(make([]byte, 40000), 'x'), 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := bytes.NewReader(append(archive(t), tc.extra...))
+			l, err := Walk(r, Limits{}, func(File) error { return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(l.Skipped) != tc.want {
+				t.Fatalf("skipped = %+v, want %d", l.Skipped, tc.want)
+			}
+			if tc.want == 1 && (l.Skipped[0].Signature != SigTrailingData || l.Skipped[0].SHA256 == "") {
+				t.Errorf("skipped = %+v", l.Skipped[0])
+			}
+			if r.Len() != 0 {
+				t.Errorf("%d bytes left unread", r.Len())
+			}
+		})
+	}
+}
+
+func TestWalkTrailingDataLimit(t *testing.T) {
+	b, err := io.ReadAll(tarball(t, entry{name: "a", content: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := io.MultiReader(bytes.NewReader(b), io.LimitReader(zeros{}, 1<<20))
+	if _, err := Walk(r, Limits{MaxLayerSize: 1 << 16}, func(File) error { return nil }); !errors.Is(err, ErrLimitExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// A GNU sparse file declares far more than the layer holds; the limit has to
+// count what the entries expand to, across all entries.
+func TestWalkSparseLimit(t *testing.T) {
+	var buf bytes.Buffer
+	for _, name := range []string{"a", "b", "c"} {
+		buf.Write(sparseHeader(t, name, 1<<20))
+	}
+	buf.Write(make([]byte, 1024))
+	var read int64
+	_, err := Walk(bytes.NewReader(buf.Bytes()), Limits{MaxLayerSize: 3 << 19}, func(f File) error {
+		n, err := io.Copy(io.Discard, f.Content)
+		read += n
+		return err
+	})
+	if !errors.Is(err, ErrLimitExceeded) {
+		t.Fatalf("err = %v after %d bytes", err, read)
+	}
+	if read > 3<<19 {
+		t.Errorf("read %d bytes, above the limit", read)
+	}
+}
+
+// sparseHeader is an old GNU format header of a file that is one big hole.
+func sparseHeader(t *testing.T, name string, size int64) []byte {
+	t.Helper()
+	b := make([]byte, 512)
+	copy(b, name)
+	copy(b[100:], "0000644\x00")
+	copy(b[108:], "0000000\x00")
+	copy(b[116:], "0000000\x00")
+	copy(b[124:], "00000000000\x00") // no data in the archive
+	copy(b[136:], "00000000000\x00")
+	b[156] = tar.TypeGNUSparse
+	copy(b[257:], "ustar  \x00")
+	// One sparse entry that ends at the real size: offset size, length 0.
+	copy(b[386:], fmt.Sprintf("%011o\x00", size))
+	copy(b[398:], "00000000000\x00")
+	copy(b[483:], fmt.Sprintf("%011o\x00", size))
+	copy(b[148:], "        ")
+	var sum int
+	for _, c := range b {
+		sum += int(c)
+	}
+	copy(b[148:], fmt.Sprintf("%06o\x00 ", sum))
+	return b
 }

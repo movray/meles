@@ -9,16 +9,23 @@ CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 ENVTEST_K8S    ?= 1.36.x
 SETUP_ENVTEST  ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2
 PROMTOOL       ?= promtool
+FUZZTIME       ?= 1m
 # Keep in line with GOVULNCHECK_VERSION in .github/workflows/release.yml.
 GOVULNCHECK    ?= go run golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
-.PHONY: build test test-integration test-envtest test-rules generate lint vuln run-server selftest image image-tarball clean
+.PHONY: build test fuzz test-integration test-envtest test-rules generate lint vuln run-server selftest image image-tarball clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/meles ./cmd/meles
 
 test:
 	go test -race ./...
+
+# Each fuzz target of the layer extractor in turn; FUZZTIME per target.
+fuzz:
+	for f in FuzzWalk FuzzWalkEntry FuzzCleanPath FuzzHiddenBy; do \
+		go test ./internal/extract -run='^$$' -fuzz="^$$f\$$" -fuzztime=$(FUZZTIME) || exit 1; \
+	done
 
 # Needs a running clamd.
 test-integration:

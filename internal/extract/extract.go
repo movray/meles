@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"path"
 	"strings"
 )
@@ -51,7 +52,12 @@ const (
 	SigMaxFileSize  = "meles.Limits.MaxFileSize"
 	SigUnsupported  = "meles.Unsupported.TarEntry"
 	SigEngineTooBig = "meles.Limits.StreamMaxLength"
+	SigTrailingData = "meles.Unsupported.TrailingData"
 )
+
+// TrailingDataPath stands for the data after the end of a tar archive, which
+// is no file and has no path of its own.
+const TrailingDataPath = "/(data after the end of the archive)"
 
 // Skipped is a file that was not scanned.
 type Skipped struct {
@@ -59,7 +65,8 @@ type Skipped struct {
 	Size   int64  `json:"size"`
 	Reason string `json:"reason"`
 	// Signature names the reason: SigMaxFileSize, SigUnsupported,
-	// SigEngineTooBig or the engine's Heuristics.Limits.Exceeded.*.
+	// SigEngineTooBig, SigTrailingData or the engine's
+	// Heuristics.Limits.Exceeded.*.
 	Signature string `json:"signature"`
 	// SHA256 of the file content, hex.
 	SHA256 string `json:"sha256,omitempty"`
@@ -83,6 +90,9 @@ type Layer struct {
 	// Opaques holds directories whose lower-layer content is hidden by a
 	// .wh..wh..opq entry.
 	Opaques map[string]bool
+	// Hidden holds whiteout entries that carry content. A container runtime
+	// never unpacks them, but the content is shipped in the layer.
+	Hidden  map[string]bool
 	Skipped []Skipped
 	// Files is the number of regular files passed to the callback.
 	Files int
@@ -91,15 +101,25 @@ type Layer struct {
 }
 
 // Walk reads the uncompressed layer tarball r and calls fn for every regular
-// file within the limits. Whiteout entries are recorded, not passed to fn.
+// file within the limits. Whiteout entries are recorded; those with content
+// are passed to fn as well, because the name of an entry must not decide
+// whether its content is scanned. Walk reads r to the end: content after the
+// end of the archive cannot be attributed to a file and is reported as
+// skipped.
 func Walk(r io.Reader, lim Limits, fn func(File) error) (*Layer, error) {
 	cr := &countingReader{r: r}
 	tr := tar.NewReader(cr)
-	l := &Layer{Entries: map[string]bool{}, Whiteouts: map[string]bool{}, Opaques: map[string]bool{}}
+	l := &Layer{Entries: map[string]bool{}, Whiteouts: map[string]bool{}, Opaques: map[string]bool{}, Hidden: map[string]bool{}}
+	// expanded counts the declared size of all files. It can exceed the bytes
+	// read: sparse files expand to far more than the layer holds.
+	var expanded int64
 
 	for entries := 0; ; entries++ {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
+			if err := trailingData(cr, lim, l); err != nil {
+				return nil, err
+			}
 			l.Bytes = cr.n
 			return l, nil
 		}
@@ -109,23 +129,40 @@ func Walk(r io.Reader, lim Limits, fn func(File) error) (*Layer, error) {
 		if lim.MaxFiles > 0 && entries >= lim.MaxFiles {
 			return nil, fmt.Errorf("more than %d entries: %w", lim.MaxFiles, ErrLimitExceeded)
 		}
-		if lim.MaxLayerSize > 0 && cr.n+h.Size > lim.MaxLayerSize {
+		if h.Size < 0 {
+			return nil, fmt.Errorf("read tar: negative size of %q", h.Name)
+		}
+		if h.Typeflag == tar.TypeReg || h.Typeflag == tar.TypeGNUSparse {
+			if h.Size > math.MaxInt64-expanded {
+				return nil, fmt.Errorf("size overflow at %q: %w", h.Name, ErrLimitExceeded)
+			}
+			expanded += h.Size
+		}
+		if lim.MaxLayerSize > 0 && (expanded > lim.MaxLayerSize || cr.n > lim.MaxLayerSize-h.Size) {
 			return nil, fmt.Errorf("larger than %d bytes: %w", lim.MaxLayerSize, ErrLimitExceeded)
 		}
 
 		p := CleanPath(h.Name)
 		dir, base := path.Dir(p), path.Base(p)
+		whiteout := true
 		switch {
 		case base == opaqueMarker:
 			l.Opaques[dir] = true
-			continue
 		case strings.HasPrefix(base, whiteoutPrefix):
 			l.Whiteouts[path.Join(dir, strings.TrimPrefix(base, whiteoutPrefix))] = true
-			continue
 		case h.Typeflag == tar.TypeDir:
 			continue
+		default:
+			whiteout = false
 		}
-		l.Entries[p] = true
+		switch {
+		case !whiteout:
+			l.Entries[p] = true
+		case h.Size == 0:
+			continue
+		default:
+			l.Hidden[p] = true
+		}
 		switch h.Typeflag {
 		case tar.TypeReg, tar.TypeGNUSparse:
 			// archive/tar expands sparse files when they are read.
@@ -157,6 +194,39 @@ func Walk(r io.Reader, lim Limits, fn func(File) error) (*Layer, error) {
 	}
 }
 
+// trailingData reads what follows the end of the archive. Zero padding is
+// normal; anything else is shipped with the layer, but no file of it, and is
+// reported as skipped.
+func trailingData(r *countingReader, lim Limits, l *Layer) error {
+	h := sha256.New()
+	var size, last int64
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := r.Read(buf)
+		h.Write(buf[:n])
+		for i := n - 1; i >= 0; i-- {
+			if buf[i] != 0 {
+				last = size + int64(i) + 1
+				break
+			}
+		}
+		size += int64(n)
+		if lim.MaxLayerSize > 0 && r.n > lim.MaxLayerSize {
+			return fmt.Errorf("larger than %d bytes: %w", lim.MaxLayerSize, ErrLimitExceeded)
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read after the end of the archive: %w", err)
+		}
+	}
+	if last > 0 {
+		l.Skipped = append(l.Skipped, Skipped{Path: TrailingDataPath, Size: size, Reason: "data after the end of the tar archive", Signature: SigTrailingData, SHA256: hex.EncodeToString(h.Sum(nil))})
+	}
+	return nil
+}
+
 // CleanPath turns a tar entry name into a clean absolute path. Traversal
 // such as "../../etc/passwd" stays inside the layer root.
 func CleanPath(name string) string {
@@ -165,8 +235,12 @@ func CleanPath(name string) string {
 
 // HiddenBy returns the index of the first layer after layer i that hides
 // path p in the final filesystem, and how it does so ("overwritten",
-// "whiteout" or "opaque"). It returns -1 if p is still visible.
+// "whiteout" or "opaque"). It returns -1 if p is still visible. A whiteout
+// entry with content is hidden by its own layer.
 func HiddenBy(p string, i int, layers []*Layer) (int, string) {
+	if layers[i].Hidden[p] {
+		return i, "whiteout"
+	}
 	for j := i + 1; j < len(layers); j++ {
 		l := layers[j]
 		for d := p; d != "/"; d = path.Dir(d) {

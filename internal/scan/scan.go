@@ -392,11 +392,8 @@ func (s *Scanner) walkLayer(ctx context.Context, l v1.Layer, diffID v1.Hash, res
 	if err != nil {
 		return err
 	}
-	// The tar reader stops at the end-of-archive marker. Read the rest so
-	// that go-containerregistry verifies the blob digest at EOF.
-	if _, err := io.Copy(io.Discard, r); err != nil {
-		return fmt.Errorf("read: %w", err)
-	}
+	// Walk read to the end, so go-containerregistry has verified the blob
+	// digest at EOF.
 	if got := hex.EncodeToString(h.Sum(nil)); got != diffID.Hex {
 		return fmt.Errorf("content does not match diffID (got sha256:%s)", got)
 	}
