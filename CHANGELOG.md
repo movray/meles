@@ -3,12 +3,24 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
-## Unreleased
+## v0.3.3
+
+Makes the chart upgradable with `--reuse-values` again.
+
+### Upgrade
+
+Upgrading from 0.3.2 or older with `helm upgrade --reuse-values` works again.
+Nothing else changes for existing installations.
 
 ### Fixed
 
 - `helm upgrade --reuse-values` from an older chart left `scan.maxLayerSize`
   empty, and meles refused to start.
+
+### Dependencies
+
+- `modernc.org/sqlite` 1.62.0, `golang.org/x/sync` 0.25.0,
+  `github.com/spf13/pflag` 1.1.0; GitHub Actions updates.
 
 ## v0.3.2
 
