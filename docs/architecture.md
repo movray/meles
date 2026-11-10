@@ -570,8 +570,7 @@ scan.
 
 ## Planned improvements
 
-Not built yet, but intended; the order and details are in
-[ROADMAP.md](../ROADMAP.md) (German).
+Not built yet, but intended, in no fixed order.
 
 - **clamd from outside the cluster.** A `TLSRoute` (Gateway API, TLS
   passthrough, experimental channel) in the chart, so that CI jobs without
