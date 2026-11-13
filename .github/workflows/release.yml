@@ -221,7 +221,7 @@ jobs:
           if [ "$PUBLISH" = true ]; then
             goreleaser release --clean $header
           else
-            goreleaser release --snapshot --clean $header
+            goreleaser release --snapshot --skip=sign --clean $header
           fi
 
       - name: Binary provenance

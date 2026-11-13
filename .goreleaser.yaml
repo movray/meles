@@ -26,6 +26,16 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Keyless cosign signature of checksums.txt as a Sigstore bundle, so the
+# binaries can be verified with cosign (and OpenSSF Scorecard sees a signed
+# release). Skipped in the dry run.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--yes", "--bundle=${signature}", "${artifact}"]
+    output: true
+
 changelog:
   use: github
   sort: asc
@@ -50,4 +60,4 @@ release:
     **Helm chart:** `helm install meles oci://ghcr.io/movray/charts/meles --version {{ .Version }}`
 
     Binaries, image and chart carry build provenance; verify with `gh attestation verify`
-    (see the README, section Install).
+    or cosign (see the README, section Install).
