@@ -2,6 +2,11 @@
   <img src="docs/images/meles.svg" alt="meles logo: a badger's head" width="160">
 </p>
 
+<p align="center">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/movray/meles"><img src="https://api.scorecard.dev/projects/github.com/movray/meles/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://artifacthub.io/packages/helm/meles/meles"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/meles" alt="Artifact Hub"></a>
+</p>
+
 # meles
 
 **meles** is a malware scanner for container images: one command on an image
@@ -148,6 +153,16 @@ cosign 3 (cosign 2 needs `--new-bundle-format`):
 cosign verify ghcr.io/movray/meles:$VERSION \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/movray/meles/\.github/workflows/release\.yml@refs/tags/v'
+```
+
+The binaries are covered by `checksums.txt` and its signature
+`checksums.txt.sigstore.json` in the release (from 0.3.5 on):
+
+```sh
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/movray/meles/\.github/workflows/release\.yml@refs/tags/v'
+sha256sum --ignore-missing -c checksums.txt
 ```
 
 ## Quick start
