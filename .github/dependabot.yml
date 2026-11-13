@@ -1,6 +1,6 @@
 # Weekly, grouped, so that updates come as a few pull requests. Security
 # updates come as soon as an advisory is published, independent of this
-# schedule. spike/ is a throwaway prototype and is left out.
+# schedule.
 version: 2
 updates:
   - package-ecosystem: gomod

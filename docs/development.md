@@ -96,7 +96,6 @@ hack/testregistry/      test images on a fixed port (UI demo)
 hack/yaraindex/         generator of internal/yararules/index.json
 hack/yara/              ClamAV load check of YARA rules (CI)
 charts/meles/           Helm chart; crds/ is generated; rules/ holds the default YARA rules
-spike/                  throw-away prototype (own module), reference only
 ```
 
 ## Conventions
