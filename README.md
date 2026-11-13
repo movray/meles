@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://scorecard.dev/viewer/?uri=github.com/movray/meles"><img src="https://api.scorecard.dev/projects/github.com/movray/meles/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://www.bestpractices.dev/projects/16673"><img src="https://www.bestpractices.dev/projects/16673/badge" alt="OpenSSF Best Practices"></a>
   <a href="https://artifacthub.io/packages/helm/meles/meles"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/meles" alt="Artifact Hub"></a>
 </p>
 
