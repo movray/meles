@@ -34,6 +34,9 @@ The ones that matter most for a pull request:
   `fix:`, `docs:`, ...); the changelog is made from them.
 - Errors are wrapped with context, logs go through `log/slog`, tests are
   table tests.
+- **New functionality and bug fixes come with tests** in the automated test
+  suite (unit tests, and integration or envtest tests where the change
+  touches clamd or Kubernetes). A bug fix adds a test that fails without it.
 - **Never commit an EICAR file or real malware.** Test files with EICAR are
   generated at runtime (`internal/testimage`); a stored one would trigger
   virus scanners on every clone.
