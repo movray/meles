@@ -148,6 +148,10 @@ Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
    it to `oci://ghcr.io/movray/charts/meles`;
 3. image and chart are signed with cosign (keyless) and get build
    provenance from `actions/attest-build-provenance`;
+   `charts/artifacthub-repo.yml` is pushed next to the chart as the tag
+   `artifacthub.io` (Artifact Hub's Verified Publisher; Artifact Hub shows
+   the chart's own `README.md` and the `artifacthub.io/*` annotations in
+   `Chart.yaml`);
 4. GoReleaser (`.goreleaser.yaml`) builds the binaries (linux/darwin,
    amd64/arm64) and creates the GitHub release: the section `## vX.Y.Z` of
    `CHANGELOG.md` (upgrade notes, security fixes) on top, the changelog

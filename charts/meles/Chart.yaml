@@ -6,6 +6,68 @@ version: 0.3.3
 # Tag of the meles image; override with image.tag.
 appVersion: "0.3.3"
 home: https://github.com/movray/meles
+icon: https://raw.githubusercontent.com/movray/meles/main/docs/images/meles.svg
 sources:
   - https://github.com/movray/meles
-keywords: [malware, clamav, container, security, scanner]
+keywords: [malware, clamav, yara, container, security, scanner, operator]
+maintainers:
+  - name: movray
+    url: https://github.com/movray
+# Shown on artifacthub.io.
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Getting started
+      url: https://github.com/movray/meles/blob/main/docs/getting-started.md
+    - name: Reading the results
+      url: https://github.com/movray/meles/blob/main/docs/results.md
+    - name: Architecture
+      url: https://github.com/movray/meles/blob/main/docs/architecture.md
+    - name: Issues
+      url: https://github.com/movray/meles/issues
+  artifacthub.io/screenshots: |
+    - title: Dashboard with an infected EICAR test image
+      url: https://raw.githubusercontent.com/movray/meles/main/docs/images/dashboard-light.png
+    - title: Dashboard, dark theme
+      url: https://raw.githubusercontent.com/movray/meles/main/docs/images/dashboard-dark.png
+  artifacthub.io/crds: |
+    - kind: MalwareReport
+      version: v1alpha1
+      name: malwarereports.meles.io
+      displayName: Malware report
+      description: Scan result of one container of a workload, written by the operator
+    - kind: MalwareIgnore
+      version: v1alpha1
+      name: malwareignores.meles.io
+      displayName: Malware ignore
+      description: Ignore rules for the reports in its namespace
+    - kind: ClusterMalwareIgnore
+      version: v1alpha1
+      name: clustermalwareignores.meles.io
+      displayName: Cluster malware ignore
+      description: Ignore rules for the reports of the whole cluster
+  artifacthub.io/crdsExamples: |
+    - apiVersion: meles.io/v1alpha1
+      kind: MalwareIgnore
+      metadata:
+        name: team-exceptions
+        namespace: my-app
+      spec:
+        rules:
+          - name: test-fixture
+            path: /app/tests/fixtures/**
+            image: ghcr.io/example/my-app
+            reason: Test data of the scanner library, never executed
+            expires: "2027-06-30"
+    - apiVersion: meles.io/v1alpha1
+      kind: ClusterMalwareIgnore
+      metadata:
+        name: known-harmless
+      spec:
+        rules:
+          - name: php-phar-test-quine
+            path: /usr/src/php.tar.xz
+            signature: Heuristics.Limits.Exceeded.MaxRecursion
+            reason: PHP test file ext/phar/tests/bug81726.gz unpacks to itself
+            expires: "2027-06-30"

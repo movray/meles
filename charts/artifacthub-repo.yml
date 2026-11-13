@@ -1,0 +1,5 @@
+# Artifact Hub metadata for oci://ghcr.io/movray/charts/meles. The release
+# workflow pushes it next to the chart as the tag "artifacthub.io"; the
+# repository ID proves that the publisher of the chart also owns the entry
+# on artifacthub.io (Verified Publisher). No owners: this file is public.
+repositoryID: 243d20b1-c932-406e-bfbb-8f40ccf61552

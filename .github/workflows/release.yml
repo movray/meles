@@ -36,6 +36,7 @@ jobs:
       # Keep in line with the Makefile.
       GOVULNCHECK_VERSION: v1.9.0
       COSIGN_VERSION: v3.1.4
+      ORAS_VERSION: v1.3.6
       HELM_VERSION: v3.19.0
       HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
       TRIVY_VERSION: 0.76.1
@@ -65,6 +66,7 @@ jobs:
           go install "github.com/google/ko@$KO_VERSION"
           go install "github.com/sigstore/cosign/v3/cmd/cosign@$COSIGN_VERSION"
           go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
+          go install "oras.land/oras/cmd/oras@$ORAS_VERSION"
           mkdir -p "$RUNNER_TEMP/tools" && cd "$RUNNER_TEMP/tools"
           curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors \
             -o helm.tgz "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
@@ -120,6 +122,7 @@ jobs:
         run: |
           echo "$GITHUB_TOKEN" | ko login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          echo "$GITHUB_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       # Nothing is published that fails a scan of meles or Trivy. The image
       # is built into a local OCI layout for this; the step "Image" builds
@@ -197,6 +200,16 @@ jobs:
           subject-name: ghcr.io/movray/charts/meles
           subject-digest: ${{ env.CHART_DIGEST }}
           push-to-registry: true
+
+      # Repository metadata for Artifact Hub (Verified Publisher), with
+      # every release so that it follows the file in the repository.
+      - name: Artifact Hub metadata
+        if: env.PUBLISH == 'true'
+        working-directory: charts
+        run: |
+          oras push "${CHART_REPO#oci://}/meles:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
 
       - name: Binaries and GitHub release
         env:
