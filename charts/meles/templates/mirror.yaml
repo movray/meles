@@ -55,7 +55,7 @@ spec:
       {{- include "meles.scheduling" .Values.mirror | nindent 6 }}
       containers:
         - name: cvdupdate
-          image: "{{ .Values.mirror.cvdupdate.image.repository }}:{{ .Values.mirror.cvdupdate.image.tag }}"
+          image: "{{ .Values.mirror.cvdupdate.image.repository }}:{{ .Values.mirror.cvdupdate.image.tag }}{{ with .Values.mirror.cvdupdate.image.digest }}@{{ . }}{{ end }}"
           imagePullPolicy: {{ .Values.mirror.cvdupdate.image.pullPolicy }}
           command: ["/bin/sh", "/scripts/update.sh"]
           resources:
@@ -68,7 +68,7 @@ spec:
             - {name: config, mountPath: /scripts}
             - {name: tmp, mountPath: /tmp}
         - name: nginx
-          image: "{{ .Values.mirror.nginx.image.repository }}:{{ .Values.mirror.nginx.image.tag }}"
+          image: "{{ .Values.mirror.nginx.image.repository }}:{{ .Values.mirror.nginx.image.tag }}{{ with .Values.mirror.nginx.image.digest }}@{{ . }}{{ end }}"
           imagePullPolicy: {{ .Values.mirror.nginx.image.pullPolicy }}
           command: ["nginx", "-g", "daemon off;", "-c", "/config/nginx.conf"]
           ports:
