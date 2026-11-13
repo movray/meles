@@ -3,6 +3,31 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## v0.3.5
+
+Smaller, pinned images for the database mirror, and signed checksums for
+the binaries.
+
+### Upgrade
+
+The mirror pod restarts with the new images; the databases on its volume
+stay. Nothing else changes for existing installations. If you override
+`mirror.cvdupdate.image.tag` or `mirror.nginx.image.tag`, also set the
+matching `digest` (or set it to `""`).
+
+### Changed
+
+- The mirror runs on `python:3.14-alpine` instead of `python:3.12-slim` and
+  on `nginxinc/nginx-unprivileged:1.30-alpine-slim` instead of
+  `1.27-alpine` (a branch that no longer gets updates); both are pinned by
+  digest (new values `mirror.cvdupdate.image.digest` and
+  `mirror.nginx.image.digest`). This removes almost all known
+  vulnerabilities that image scanners such as Artifact Hub's reported for
+  the chart.
+- Releases include `checksums.txt.sigstore.json`, a keyless cosign
+  signature of `checksums.txt`: the binaries can be verified with
+  `cosign verify-blob` (see the README, section Install).
+
 ## v0.3.4
 
 The Helm chart is listed on [Artifact Hub](https://artifacthub.io/packages/helm/meles/meles).
