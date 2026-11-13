@@ -3,6 +3,23 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## v0.3.4
+
+The Helm chart is listed on [Artifact Hub](https://artifacthub.io/packages/helm/meles/meles).
+
+### Upgrade
+
+Nothing changes for existing installations.
+
+### Changed
+
+- The chart has a README of its own and Artifact Hub metadata: links,
+  screenshots, the CRDs with examples.
+
+### Dependencies
+
+- `click` 8.5.1 in the database mirror.
+
 ## v0.3.3
 
 Makes the chart upgradable with `--reuse-values` again.
