@@ -15,8 +15,8 @@ report within a week and to agree on a fix and a disclosure date with you.
 
 ## Supported versions
 
-There is no release yet. Fixes go into `main`; from the first release on,
-the latest release gets security fixes.
+Only the latest release gets security fixes. Fixes go into `main` and
+into a new patch release.
 
 ## Scope
 
