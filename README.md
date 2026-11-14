@@ -45,7 +45,7 @@ layers.
 Try it on your machine (Linux amd64, Docker, bash):
 
 ```sh
-curl -fsSL https://github.com/movray/meles/releases/download/v0.4.0/meles_0.4.0_linux_amd64.tar.gz | tar -xz meles
+curl -fsSL https://github.com/movray/meles/releases/download/v0.4.1/meles_0.4.1_linux_amd64.tar.gz | tar -xz meles
 docker run -d --name clamd -p 127.0.0.1:3310:3310 clamav/clamav:1.4
 export MELES_CLAMD=tcp://127.0.0.1:3310
 until (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\0' >&3 && head -c4 <&3 | grep -q PONG) 2>/dev/null; do sleep 5; done
@@ -59,7 +59,7 @@ memory on a node):
 ```sh
 kubectl create namespace meles
 kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
-helm install meles oci://ghcr.io/movray/charts/meles --version 0.4.0 -n meles --set operator.enabled=true
+helm install meles oci://ghcr.io/movray/charts/meles --version 0.4.1 -n meles --set operator.enabled=true
 kubectl -n meles rollout status deploy/meles-clamd --timeout=15m
 kubectl get malwarereports -A                            # every image running in your cluster
 kubectl -n meles port-forward svc/meles-server 8080:80   # http://localhost:8080/
@@ -122,7 +122,7 @@ binaries for Linux and macOS (amd64, arm64), a multi-arch image and the Helm
 chart:
 
 ```sh
-VERSION=0.4.0
+VERSION=0.4.1
 # Binary
 curl -fsSLO https://github.com/movray/meles/releases/download/v$VERSION/meles_${VERSION}_linux_amd64.tar.gz
 tar -xzf meles_${VERSION}_linux_amd64.tar.gz meles
@@ -157,7 +157,7 @@ cosign verify ghcr.io/movray/meles:$VERSION \
 ```
 
 The binaries are covered by `checksums.txt` and its signature
-`checksums.txt.sigstore.json` in the release (from 0.4.0 on):
+`checksums.txt.sigstore.json` in the release (from 0.4.1 on):
 
 ```sh
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
@@ -346,7 +346,7 @@ jobs:
     steps:
       - name: Install meles
         run: |
-          v=0.4.0
+          v=0.4.1
           curl -fsSL "https://github.com/movray/meles/releases/download/v$v/meles_${v}_linux_amd64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin meles
       - name: Signature database from the cache
@@ -503,7 +503,7 @@ to an existing clamd.
 ```sh
 kubectl create namespace meles
 kubectl label namespace meles pod-security.kubernetes.io/enforce=baseline
-helm install meles oci://ghcr.io/movray/charts/meles --version 0.4.0 -n meles -f my-values.yaml
+helm install meles oci://ghcr.io/movray/charts/meles --version 0.4.1 -n meles -f my-values.yaml
 kubectl -n meles create job --from=cronjob/meles-selftest selftest-1
 kubectl -n meles port-forward svc/meles-server 8080:80
 ```
