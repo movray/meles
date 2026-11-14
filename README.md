@@ -157,7 +157,7 @@ cosign verify ghcr.io/movray/meles:$VERSION \
 ```
 
 The binaries are covered by `checksums.txt` and its signature
-`checksums.txt.sigstore.json` in the release (from 0.3.5 on):
+`checksums.txt.sigstore.json` in the release (from 0.4.0 on):
 
 ```sh
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \

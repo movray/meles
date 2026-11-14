@@ -3,7 +3,7 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
-## v0.3.5
+## v0.4.0
 
 The database mirror runs on meles' own images only, without known
 vulnerabilities, and the binaries come with a signed checksum file.
