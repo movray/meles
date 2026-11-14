@@ -3,6 +3,22 @@
 Notable changes and upgrade notes. The full list of commits is in each
 [GitHub release](https://github.com/movray/meles/releases).
 
+## v0.4.1
+
+The binaries and the GitHub release of v0.4.0: its release workflow
+published the images and the chart, then stopped before the GitHub
+release. Otherwise the same as v0.4.0; read its upgrade notes when coming
+from v0.3.x.
+
+### Upgrade
+
+Nothing changes from v0.4.0.
+
+### Fixed
+
+- The release workflow releases the pushed tag, also when a pre-release
+  tag sits on the same commit.
+
 ## v0.4.0
 
 The database mirror runs on meles' own images only, without known
