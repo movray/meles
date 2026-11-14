@@ -145,7 +145,7 @@ gh attestation verify oci://ghcr.io/movray/meles:$VERSION -R movray/meles
 gh attestation verify oci://ghcr.io/movray/charts/meles:$VERSION -R movray/meles
 ```
 
-Releases after 0.4.1 also carry the provenance of the binaries as
+Releases from 0.4.1 on also carry the provenance of the binaries as
 `meles_$VERSION.intoto.jsonl`, for a check without the GitHub API:
 
 ```sh
