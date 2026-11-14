@@ -23,7 +23,8 @@ spec:
       storage: {{ .Values.mirror.persistence.size }}
 {{- end }}
 ---
-# cvdupdate and nginx share one RWO volume, so they run in one pod.
+# cvdupdate and the HTTP server (meles mirror) share one RWO volume, so
+# they run in one pod.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +47,7 @@ spec:
       annotations:
         checksum/config: {{ (include (print $.Template.BasePath "/mirror-config.yaml") . | fromYaml).data | toYaml | sha256sum }}
     spec:
+      {{- include "meles.imagePullSecrets" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -67,24 +69,28 @@ spec:
             - {name: db, mountPath: /mirror}
             - {name: config, mountPath: /scripts}
             - {name: tmp, mountPath: /tmp}
-        - name: nginx
-          image: "{{ .Values.mirror.nginx.image.repository }}:{{ .Values.mirror.nginx.image.tag }}{{ with .Values.mirror.nginx.image.digest }}@{{ . }}{{ end }}"
-          imagePullPolicy: {{ .Values.mirror.nginx.image.pullPolicy }}
-          command: ["nginx", "-g", "daemon off;", "-c", "/config/nginx.conf"]
+        - name: http
+          image: {{ include "meles.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [mirror]
+          env:
+            - {name: MELES_LISTEN, value: ":8080"}
+            - {name: MELES_DB_DIR, value: /mirror/db}
+            {{- if $yaraFiles }}
+            - {name: MELES_RULES_DIR, value: /rules}
+            {{- end }}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
             httpGet: {path: /healthz, port: http}
           resources:
-            {{- toYaml .Values.mirror.nginx.resources | nindent 12 }}
+            {{- toYaml .Values.mirror.http.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
             readOnlyRootFilesystem: true
           volumeMounts:
             - {name: db, mountPath: /mirror, readOnly: true}
-            - {name: config, mountPath: /config}
-            - {name: nginx-tmp, mountPath: /tmp}
             {{- if $yaraFiles }}
             - {name: rules, mountPath: /rules, readOnly: true}
             {{- end }}
@@ -96,10 +102,8 @@ spec:
           configMap: {name: {{ $fullname }}-mirror}
         - name: tmp
           emptyDir: {}
-        - name: nginx-tmp
-          emptyDir: {}
         {{- if $yaraFiles }}
-        # Not a subPath mount: ConfigMap updates reach nginx without a restart.
+        # Not a subPath mount: ConfigMap updates are served without a restart.
         - name: rules
           projected:
             sources:

@@ -62,7 +62,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
-	root.AddCommand(newImageCmd(), newSelftestCmd(), newServerCmd(), newOperatorCmd(), newClamdProxyCmd(), newHarborAdapterCmd(), newVersionCmd())
+	root.AddCommand(newImageCmd(), newSelftestCmd(), newServerCmd(), newOperatorCmd(), newClamdProxyCmd(), newMirrorCmd(), newHarborAdapterCmd(), newVersionCmd())
 	return root
 }
 

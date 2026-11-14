@@ -29,7 +29,7 @@ By default meles only reports and never deletes anything.
 
 | Component | Purpose |
 |---|---|
-| `<release>-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly); also serves the YARA rules. |
+| `<release>-mirror` | cvdupdate + `meles mirror` (HTTP). The only component that downloads signatures from Cisco Talos (at most hourly); also serves the YARA rules. |
 | `<release>-clamd` | clamd workers; get signatures from the mirror. A token-checking TLS proxy sits in front of clamd. |
 | `<release>-server` | web UI, cron schedules, run history (SQLite on a PVC). |
 | `<release>-operator` | scans the image of every pod and writes a `MalwareReport` next to the workload; optional scan gate. Off by default. |

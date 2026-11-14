@@ -110,7 +110,7 @@ The clients' `--clamd-timeout` follows `clamd.maxScanTime` as well.
 ## Components in a cluster
 
 ```
-Cisco Talos CDN ──▶ mirror (cvdupdate + nginx, once per site; YARA rules from ConfigMaps)
+Cisco Talos CDN ──▶ mirror (cvdupdate + meles mirror, once per site; YARA rules from ConfigMaps)
                        │ freshclam (PrivateMirror, DatabaseCustomURL)
                        ▼
                    clamd workers (1..n, signatures kept in memory)
@@ -123,8 +123,12 @@ Cisco Talos CDN ──▶ mirror (cvdupdate + nginx, once per site; YARA rules f
 ```
 
 - **Mirror.** The only component that talks to Cisco Talos, at most hourly
-  (rate limits). A Deployment with two containers (cvdupdate loop and nginx)
-  on one RWO volume; a CronJob and nginx would need RWX or the same node.
+  (rate limits). A Deployment with two containers on one RWO volume: the
+  cvdupdate loop and `meles mirror`, a file server that serves only the
+  database files and the YARA rules (no general web server, so no nginx
+  image with its own vulnerabilities to follow). A CronJob next to the
+  server would need RWX or the same node. cvdupdate keeps its state (the
+  cool-down after an HTTP 429, the UUID in its User-Agent) on the volume.
 - **clamd workers.** clamd needs well over 1 GB of memory with the full
   database and almost twice that during a reload, so workers run long; no
   clamd per scan. The layer cache belongs to the clients, not the workers.

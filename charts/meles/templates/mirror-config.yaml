@@ -8,35 +8,19 @@ metadata:
     {{- include "meles.labels" . | nindent 4 }}
     app.kubernetes.io/component: mirror
 data:
-  nginx.conf: |
-    worker_processes 1;
-    pid /tmp/nginx.pid;
-    events { worker_connections 256; }
-    http {
-      client_body_temp_path /tmp/client_body;
-      proxy_temp_path /tmp/proxy;
-      fastcgi_temp_path /tmp/fastcgi;
-      uwsgi_temp_path /tmp/uwsgi;
-      scgi_temp_path /tmp/scgi;
-      access_log off;
-      server {
-        listen 8080;
-        root /mirror/db;
-        autoindex off;
-        location = /healthz { return 200 "ok\n"; }
-        # YARA rules from the ConfigMaps (yara.*).
-        location /rules/ { alias /rules/; }
-        location / { try_files $uri =404; }
-      }
-    }
   update.sh: |
     #!/bin/sh
     set -eu
     export HOME=/tmp PATH="/tmp/.local/bin:$PATH"
     pip install --quiet --user --no-cache-dir --require-hashes --no-deps --only-binary :all: -r /scripts/requirements.txt
-    cvd config set --dbdir /mirror/db --logdir /tmp/cvd-logs
+    # Config and state (cvdupdate's UUID in the User-Agent, the database
+    # versions and the cool-down after an HTTP 429) live on the volume, so
+    # that they survive a restart. The HTTP server serves only /mirror/db.
+    cfg=/mirror/.cvdupdate/config.json
+    mkdir -p /mirror/.cvdupdate
+    cvd config set --config "$cfg" --dbdir /mirror/db --logdir /tmp/cvd-logs
     while true; do
-      cvd update || echo "cvd update failed, retrying in an hour" >&2
+      cvd update --config "$cfg" || echo "cvd update failed, retrying in an hour" >&2
       sleep 3600
     done
   requirements.txt: |

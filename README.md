@@ -489,7 +489,7 @@ The Helm chart in `charts/meles` installs these roles:
 
 | Component | Purpose |
 |---|---|
-| `<release>-mirror` | cvdupdate + nginx. The only component that downloads signatures from Cisco Talos (at most hourly); also serves the YARA rules. |
+| `<release>-mirror` | cvdupdate + `meles mirror` (HTTP). The only component that downloads signatures from Cisco Talos (at most hourly); also serves the YARA rules. |
 | `<release>-clamd` | clamd workers; get signatures from the mirror via freshclam `PrivateMirror`. |
 | `<release>-server` | web UI, scheduler, run history (SQLite on a PVC). |
 | `<release>-operator` | scans the image of every pod in the cluster, writes MalwareReports (off by default, see below). |

@@ -238,10 +238,11 @@ clamd:
   affinity: {}
 
 # The only component that talks to Cisco Talos: cvdupdate fetches the ClamAV
-# databases once per hour, nginx serves them to freshclam in the clamd pods.
+# databases once per hour, meles mirror serves them to freshclam in the clamd
+# pods.
 mirror:
   enabled: true
-  # Both images are pinned by digest (empty digest: the tag alone). cvdupdate
+  # The image is pinned by digest (empty digest: the tag alone). cvdupdate
   # and its dependencies are pure Python; the container installs them on
   # start (files/mirror/requirements.txt, pinned by hash).
   cvdupdate:
@@ -253,12 +254,8 @@ mirror:
     resources:
       requests: {cpu: 10m, memory: 64Mi}
       limits: {memory: 256Mi}
-  nginx:
-    image:
-      repository: nginxinc/nginx-unprivileged
-      tag: 1.30-alpine-slim
-      digest: sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
-      pullPolicy: IfNotPresent
+  # The HTTP server for freshclam: meles mirror in the meles image.
+  http:
     resources:
       requests: {cpu: 10m, memory: 16Mi}
       limits: {memory: 64Mi}

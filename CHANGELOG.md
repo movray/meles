@@ -5,25 +5,29 @@ Notable changes and upgrade notes. The full list of commits is in each
 
 ## v0.3.5
 
-Smaller, pinned images for the database mirror, and signed checksums for
-the binaries.
+A database mirror without nginx and with fewer known vulnerabilities, and
+signed checksums for the binaries.
 
 ### Upgrade
 
-The mirror pod restarts with the new images; the databases on its volume
-stay. Nothing else changes for existing installations. If you override
-`mirror.cvdupdate.image.tag` or `mirror.nginx.image.tag`, also set the
-matching `digest` (or set it to `""`).
+The mirror pod restarts; the databases on its volume stay. The values
+`mirror.nginx.*` are gone: the mirror's HTTP server is now the meles image
+(`image.*`, `imagePullSecrets`), its resources are `mirror.http.resources`.
+If you override `mirror.cvdupdate.image.tag`, also set
+`mirror.cvdupdate.image.digest` (or set it to `""`).
 
 ### Changed
 
-- The mirror runs on `python:3.14-alpine` instead of `python:3.12-slim` and
-  on `nginxinc/nginx-unprivileged:1.30-alpine-slim` instead of
-  `1.27-alpine` (a branch that no longer gets updates); both are pinned by
-  digest (new values `mirror.cvdupdate.image.digest` and
-  `mirror.nginx.image.digest`). This removes almost all known
-  vulnerabilities that image scanners such as Artifact Hub's reported for
-  the chart.
+- The mirror serves the databases and YARA rules with `meles mirror`, a
+  small file server in the meles image, instead of nginx. It serves only
+  regular files directly in the database and rules directories, with
+  If-Modified-Since and Range requests for freshclam.
+- cvdupdate runs on `python:3.14-alpine` instead of `python:3.12-slim`,
+  pinned by digest (new value `mirror.cvdupdate.image.digest`).
+- cvdupdate keeps its configuration and state on the mirror's volume
+  instead of in an `emptyDir`. A restart no longer forgets the cool-down
+  after an HTTP 429 from Cisco Talos, and the installation keeps its UUID
+  in cvdupdate's User-Agent.
 - Releases include `checksums.txt.sigstore.json`, a keyless cosign
   signature of `checksums.txt`: the binaries can be verified with
   `cosign verify-blob` (see the README, section Install).

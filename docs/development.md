@@ -81,6 +81,7 @@ internal/source/        image sources (registry), platform filter
 internal/extract/       reading layers, whiteouts, limits
 internal/engine/        engine interface; clamd/, fake/
 internal/clamdproxy/    clamd-proxy: TLS, token, command filter
+internal/mirror/        meles mirror: HTTP server for the database mirror
 internal/scan/          scanner: pipeline, layer cache, report types, ignore application
 internal/ignore/        ignore rules
 internal/report/        CLI output: table, json
