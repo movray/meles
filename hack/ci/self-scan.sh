@@ -1,13 +1,15 @@
 #!/bin/bash
-# Scans the release image before it is published: with meles against a clamd
-# with the full signature database and the chart's YARA rules, and with Trivy
-# for known vulnerabilities. Any finding, skipped file or error fails the
+# Scans the release images before they are published: with meles against a
+# clamd with the full signature database and the chart's YARA rules, and with
+# Trivy for known vulnerabilities. Any finding, skipped file or error fails the
 # release. Runs in .github/workflows/release.yml.
 #
-#   CLAMAV_IMAGE=... hack/ci/self-scan.sh <meles binary> <OCI layout>
+#   CLAMAV_IMAGE=... hack/ci/self-scan.sh <meles binary> <OCI layout>...
 set -euo pipefail
-meles=${1:?usage: self-scan.sh <meles binary> <OCI layout>}
-layout=${2:?usage: self-scan.sh <meles binary> <OCI layout>}
+usage="usage: self-scan.sh <meles binary> <OCI layout>..."
+meles=${1:?$usage}
+shift
+[ $# -gt 0 ] || { echo "$usage" >&2; exit 2; }
 : "${CLAMAV_IMAGE:?}"
 here=$(cd "$(dirname "$0")" && pwd)
 export MELES_CLAMD=tcp://127.0.0.1:3310
@@ -31,8 +33,9 @@ done
 
 # A chain that detects nothing would pass every image.
 "$meles" selftest --yara
-"$meles" image --input "$layout"
-
-# Fixed vulnerabilities only: nothing can be done about the others here.
-trivy image --input "$layout" --platform linux/amd64 --scanners vuln \
-  --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+for layout in "$@"; do
+  "$meles" image --input "$layout"
+  # Fixed vulnerabilities only: nothing can be done about the others here.
+  trivy image --input "$layout" --platform linux/amd64 --scanners vuln \
+    --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+done

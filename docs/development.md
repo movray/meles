@@ -8,9 +8,11 @@ Building, testing and releasing meles. How it works inside is described in
 - Go (see `go.mod`), no CGO
 - a running clamd for the integration tests and the selftest, e.g.
   `apt install clamav-daemon`
-- no Docker: images are built with [ko](https://ko.build), the operator
-  tests run against envtest's API server and etcd, and test images come from
-  an in-memory registry
+- no Docker for meles itself: its image is built with
+  [ko](https://ko.build), the operator tests run against envtest's API
+  server and etcd, and test images come from an in-memory registry. Only
+  the mirror's cvdupdate image (`images/mirror`, `make image-mirror`) is
+  built with Docker.
 
 ## Make targets
 
@@ -27,6 +29,7 @@ make selftest           # EICAR test images against $(CLAMD)
 make run-server         # web UI on http://127.0.0.1:8080, database meles.db
 make image              # build and push the multi-arch image with ko
 make image-tarball      # build the image into dist/meles.tar, no push
+make image-mirror       # the mirror's cvdupdate image, meles-mirror:dev (Docker)
 ```
 
 ## Tests
@@ -97,6 +100,7 @@ hack/testregistry/      test images on a fixed port (UI demo)
 hack/yaraindex/         generator of internal/yararules/index.json
 hack/yara/              ClamAV load check of YARA rules (CI)
 charts/meles/           Helm chart; crds/ is generated; rules/ holds the default YARA rules
+images/mirror/          the mirror's cvdupdate image: Dockerfile, update loop, requirements
 ```
 
 ## Conventions
@@ -143,10 +147,12 @@ Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
 
 1. ko builds the image for linux/amd64 and linux/arm64 on
    `cgr.dev/chainguard/static` (non-root, with an SPDX SBOM attached) and
-   pushes `ghcr.io/movray/meles:X.Y.Z`;
+   pushes `ghcr.io/movray/meles:X.Y.Z`; docker buildx builds the mirror's
+   cvdupdate image from `images/mirror` and oras pushes it as
+   `ghcr.io/movray/meles-mirror:X.Y.Z`;
 2. helm packages the chart with version and `appVersion` `X.Y.Z` and pushes
    it to `oci://ghcr.io/movray/charts/meles`;
-3. image and chart are signed with cosign (keyless) and get build
+3. images and chart are signed with cosign (keyless) and get build
    provenance from `actions/attest-build-provenance`;
    `charts/artifacthub-repo.yml` is pushed next to the chart as the tag
    `artifacthub.io` (Artifact Hub's Verified Publisher; Artifact Hub shows
@@ -161,12 +167,13 @@ Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
 Write the `CHANGELOG.md` section before tagging: a final release without
 one fails before anything is published. Pre-releases may leave it out.
 
-Before anything is published, `hack/ci/self-scan.sh` scans the image from a
-local OCI layout: meles with clamd, the full signature database and the
+Before anything is published, `hack/ci/self-scan.sh` scans both images from
+local OCI layouts: meles with clamd, the full signature database and the
 chart's YARA rules on all platforms, Trivy for fixed vulnerabilities of
 severity HIGH or CRITICAL on linux/amd64. A finding, a skipped file or an
-error stops the release. The published image is built again and must have
-the digest of the scanned one. Each run, the dry run as well, downloads the
+error stops the release. The published meles image is built again and must
+have the digest of the scanned one; the mirror image is pushed from the
+scanned layout itself. Each run, the dry run as well, downloads the
 signature database from Cisco Talos, so do not start it in a loop.
 
 Image and chart come first, so a release never names an image that does not

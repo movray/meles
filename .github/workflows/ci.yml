@@ -89,6 +89,23 @@ jobs:
           docker run --rm -v "$PWD:/src:ro" -w /src --entrypoint sh "$CLAMAV_IMAGE" \
             -c 'hack/yara/check-clamav.sh charts/meles/rules/*.yar'
 
+  # The mirror image (images/mirror) builds, and cvdupdate and the update
+  # loop import; Dependabot updates its requirements and base images. The
+  # release workflow builds it for all platforms and scans it. Nothing is
+  # downloaded from Cisco Talos here.
+  mirror-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: docker build -t meles-mirror:ci images/mirror
+      - name: Smoke test
+        run: |
+          docker run --rm --read-only --user 10001 --entrypoint python meles-mirror:ci \
+            -c 'import sys; sys.path.insert(0, "/app"); import update, cvdupdate.cvdupdate'
+          docker run --rm --read-only --user 10001 --entrypoint python meles-mirror:ci -m cvdupdate --help
+
   # The whole chain against a real clamd from the chart's ClamAV image. Its
   # database holds only an EICAR hash signature and the chart's YARA rules
   # (hack/ci/mini-clamd.sh): no download from Cisco Talos on every run.

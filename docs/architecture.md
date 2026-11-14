@@ -125,10 +125,17 @@ Cisco Talos CDN ──▶ mirror (cvdupdate + meles mirror, once per site; YARA 
 - **Mirror.** The only component that talks to Cisco Talos, at most hourly
   (rate limits). A Deployment with two containers on one RWO volume: the
   cvdupdate loop and `meles mirror`, a file server that serves only the
-  database files and the YARA rules (no general web server, so no nginx
-  image with its own vulnerabilities to follow). A CronJob next to the
-  server would need RWX or the same node. cvdupdate keeps its state (the
-  cool-down after an HTTP 429, the UUID in its User-Agent) on the volume.
+  database files and the YARA rules. A CronJob next to the server would
+  need RWX or the same node. cvdupdate keeps its state (the cool-down after
+  an HTTP 429, the UUID in its User-Agent) on the volume.
+- **Own images only.** Talos lets only freshclam and cvdupdate download
+  the databases, so the mirror uses cvdupdate, unchanged, in the image
+  `meles-mirror` (`images/mirror`: Chainguard's Python without shell and
+  pip, built, scanned and signed with each release). The clients still get
+  the signed `.cvd` and `.cdiff` files and check Talos' signatures
+  themselves; a mirror that ran freshclam would hand out unsigned `.cld`
+  files. The file server is meles, not nginx: a general web server would
+  bring an image with its own vulnerabilities to follow.
 - **clamd workers.** clamd needs well over 1 GB of memory with the full
   database and almost twice that during a reload, so workers run long; no
   clamd per scan. The layer cache belongs to the clients, not the workers.

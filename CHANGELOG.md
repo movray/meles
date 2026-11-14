@@ -5,29 +5,35 @@ Notable changes and upgrade notes. The full list of commits is in each
 
 ## v0.3.5
 
-A database mirror without nginx and with fewer known vulnerabilities, and
-signed checksums for the binaries.
+The database mirror runs on meles' own images only, without known
+vulnerabilities, and the binaries come with a signed checksum file.
 
 ### Upgrade
 
-The mirror pod restarts; the databases on its volume stay. The values
-`mirror.nginx.*` are gone: the mirror's HTTP server is now the meles image
-(`image.*`, `imagePullSecrets`), its resources are `mirror.http.resources`.
-If you override `mirror.cvdupdate.image.tag`, also set
-`mirror.cvdupdate.image.digest` (or set it to `""`).
+The mirror pod restarts; the databases on its volume stay and are not
+downloaded again. Changed values:
+
+- `mirror.cvdupdate.image` is now `ghcr.io/movray/meles-mirror`, its tag
+  defaults to the chart's appVersion (new optional `digest`).
+- `mirror.nginx.*` is gone: the mirror's HTTP server is the meles image
+  (`image.*`, `imagePullSecrets`), its resources are
+  `mirror.http.resources`.
+- The mirror no longer needs outbound access to PyPI.
 
 ### Changed
 
+- New image `ghcr.io/movray/meles-mirror`: cvdupdate by Cisco Talos,
+  unchanged, with its dependencies on Chainguard's Python (no shell, no
+  pip), built, scanned and signed with each release like the meles image.
+  It replaces `python:3.12-slim`, which installed cvdupdate from PyPI on
+  every start.
 - The mirror serves the databases and YARA rules with `meles mirror`, a
   small file server in the meles image, instead of nginx. It serves only
   regular files directly in the database and rules directories, with
   If-Modified-Since and Range requests for freshclam.
-- cvdupdate runs on `python:3.14-alpine` instead of `python:3.12-slim`,
-  pinned by digest (new value `mirror.cvdupdate.image.digest`).
-- cvdupdate keeps its configuration and state on the mirror's volume
-  instead of in an `emptyDir`. A restart no longer forgets the cool-down
-  after an HTTP 429 from Cisco Talos, and the installation keeps its UUID
-  in cvdupdate's User-Agent.
+- cvdupdate keeps its configuration and state on the mirror's volume. A
+  restart no longer forgets the cool-down after an HTTP 429 from Cisco
+  Talos, and the installation keeps its UUID in cvdupdate's User-Agent.
 - Releases include `checksums.txt.sigstore.json`, a keyless cosign
   signature of `checksums.txt`: the binaries can be verified with
   `cosign verify-blob` (see the README, section Install).

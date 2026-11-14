@@ -1,6 +1,7 @@
 name: release
-# A tag v* publishes a release: binaries (GoReleaser), the multi-arch image
-# (ko) and the Helm chart on ghcr.io, signed with cosign (keyless) and with
+# A tag v* publishes a release: binaries (GoReleaser), the multi-arch images
+# (meles with ko, meles-mirror with docker buildx) and the Helm chart on
+# ghcr.io, signed with cosign (keyless) and with
 # build provenance from GitHub. Started by hand, the workflow builds
 # everything as a dry run and publishes nothing.
 on:
@@ -26,6 +27,10 @@ jobs:
     env:
       PUBLISH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
       IMAGE: ghcr.io/movray/meles
+      # cvdupdate for the chart's database mirror (images/mirror).
+      MIRROR_IMAGE: ghcr.io/movray/meles-mirror
+      # BuildKit for the multi-platform build of the mirror image.
+      BUILDKIT_IMAGE: docker.io/moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
       CHART_REPO: oci://ghcr.io/movray/charts
       # Go tools are installed with go install: the module proxy and the
       # checksum database verify them. GOTOOLCHAIN=auto lets a tool fetch
@@ -124,10 +129,11 @@ jobs:
           echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           echo "$GITHUB_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      # Nothing is published that fails a scan of meles or Trivy. The image
-      # is built into a local OCI layout for this; the step "Image" builds
-      # it again and checks that it is the same.
-      - name: Scan the image
+      # Nothing is published that fails a scan of meles or Trivy. The images
+      # are built into local OCI layouts for this; the step "Image" builds
+      # meles again and checks that it is the same, the step "Mirror image"
+      # pushes the scanned layout itself.
+      - name: Scan the images
         run: |
           set -eu
           KO_DOCKER_REPO="$IMAGE" ko build --bare --push=false --oci-layout-path="$OUT/layout" \
@@ -138,8 +144,20 @@ jobs:
             *) echo "no digest in the OCI layout: $digest" >&2; exit 1 ;;
           esac
           echo "SCANNED_DIGEST=$digest" >> "$GITHUB_ENV"
+          # The final stage only copies files: no emulation for arm64.
+          docker buildx create --name meles-build --driver docker-container \
+            --driver-opt "image=$BUILDKIT_IMAGE"
+          docker buildx build --builder meles-build --platform=linux/amd64,linux/arm64 \
+            --provenance=false --sbom=false -t "$MIRROR_IMAGE:$VERSION" \
+            --output "type=oci,dest=$OUT/mirror-layout,tar=false" images/mirror
+          digest="$(jq -r '.manifests[0].digest' "$OUT/mirror-layout/index.json")"
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "no digest in the mirror's OCI layout: $digest" >&2; exit 1 ;;
+          esac
+          echo "MIRROR_DIGEST=$digest" >> "$GITHUB_ENV"
           go build -o "$OUT/meles" ./cmd/meles
-          hack/ci/self-scan.sh "$OUT/meles" "$OUT/layout"
+          hack/ci/self-scan.sh "$OUT/meles" "$OUT/layout" "$OUT/mirror-layout"
 
       # Image and chart first: the GitHub release names both, so it is only
       # created once they exist.
@@ -176,6 +194,31 @@ jobs:
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ env.IMAGE_DIGEST }}
+          push-to-registry: true
+
+      # The scanned layout itself is pushed, so the published digest is the
+      # scanned one.
+      - name: Mirror image
+        if: env.PUBLISH == 'true'
+        run: |
+          set -eu
+          tags="$VERSION"
+          case "$VERSION" in *-*) ;; *) tags="$tags,latest" ;; esac
+          oras cp -r --from-oci-layout "$OUT/mirror-layout:$VERSION" "$MIRROR_IMAGE:$tags" | tee "$OUT/mirror-push.log"
+          digest="$(sed -n 's/^Digest: //p' "$OUT/mirror-push.log")"
+          if [ "$digest" != "$MIRROR_DIGEST" ]; then
+            echo "mirror image $digest is not the scanned image $MIRROR_DIGEST" >&2
+            exit 1
+          fi
+      - name: Sign mirror image
+        if: env.PUBLISH == 'true'
+        run: cosign sign --yes "$MIRROR_IMAGE@$MIRROR_DIGEST"
+      - name: Mirror image provenance
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.MIRROR_IMAGE }}
+          subject-digest: ${{ env.MIRROR_DIGEST }}
           push-to-registry: true
 
       - name: Chart

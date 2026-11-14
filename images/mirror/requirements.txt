@@ -1,6 +1,6 @@
-# cvdupdate for the mirror, with all dependencies pinned by hash: pip installs
-# exactly these wheels or fails. The mirror container installs them when it
-# starts, on the python image of mirror.cvdupdate.image. Dependabot updates
+# cvdupdate for the mirror image, with all dependencies pinned by hash: pip
+# installs exactly these wheels or fails. All of them are pure Python
+# (py3-none-any), so one install serves every platform. Dependabot updates
 # this file.
 certifi==2026.10.23 \
     --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1

@@ -44,8 +44,6 @@ spec:
       labels:
         {{- include "meles.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: mirror
-      annotations:
-        checksum/config: {{ (include (print $.Template.BasePath "/mirror-config.yaml") . | fromYaml).data | toYaml | sha256sum }}
     spec:
       {{- include "meles.imagePullSecrets" . | nindent 6 }}
       securityContext:
@@ -57,17 +55,18 @@ spec:
       {{- include "meles.scheduling" .Values.mirror | nindent 6 }}
       containers:
         - name: cvdupdate
-          image: "{{ .Values.mirror.cvdupdate.image.repository }}:{{ .Values.mirror.cvdupdate.image.tag }}{{ with .Values.mirror.cvdupdate.image.digest }}@{{ . }}{{ end }}"
-          imagePullPolicy: {{ .Values.mirror.cvdupdate.image.pullPolicy }}
-          command: ["/bin/sh", "/scripts/update.sh"]
+          {{- with .Values.mirror.cvdupdate.image }}
+          image: "{{ .repository }}:{{ .tag | default $.Chart.AppVersion }}{{ with .digest }}@{{ . }}{{ end }}"
+          imagePullPolicy: {{ .pullPolicy }}
+          {{- end }}
           resources:
             {{- toYaml .Values.mirror.cvdupdate.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
           volumeMounts:
             - {name: db, mountPath: /mirror}
-            - {name: config, mountPath: /scripts}
             - {name: tmp, mountPath: /tmp}
         - name: http
           image: {{ include "meles.image" . | quote }}
@@ -98,8 +97,6 @@ spec:
         - name: db
           persistentVolumeClaim:
             claimName: {{ .Values.mirror.persistence.existingClaim | default (printf "%s-mirror" $fullname) }}
-        - name: config
-          configMap: {name: {{ $fullname }}-mirror}
         - name: tmp
           emptyDir: {}
         {{- if $yaraFiles }}

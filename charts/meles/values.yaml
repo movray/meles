@@ -9,7 +9,8 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
-# Pull secrets for the meles image, e.g. [{name: meles-pull}].
+# Pull secrets for the meles images (meles, meles-mirror), e.g.
+# [{name: meles-pull}].
 imagePullSecrets: []
 
 # Shared by the server, the selftest and the clamd configuration.
@@ -242,14 +243,16 @@ clamd:
 # pods.
 mirror:
   enabled: true
-  # The image is pinned by digest (empty digest: the tag alone). cvdupdate
-  # and its dependencies are pure Python; the container installs them on
-  # start (files/mirror/requirements.txt, pinned by hash).
+  # cvdupdate by Cisco Talos in an image built with each meles release
+  # (images/mirror in the repository): no shell, no pip. Its state stays on
+  # the volume, next to the databases.
   cvdupdate:
     image:
-      repository: python
-      tag: 3.14-alpine
-      digest: sha256:5862d971d1f0ae26b258cefa4e893556b1d3aba81bd2ff30888704ad378bab67
+      repository: ghcr.io/movray/meles-mirror
+      # Defaults to the chart's appVersion.
+      tag: ""
+      # Optional, e.g. sha256:... to pin the image.
+      digest: ""
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 10m, memory: 64Mi}

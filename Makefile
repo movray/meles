@@ -13,7 +13,7 @@ FUZZTIME       ?= 1m
 # Keep in line with GOVULNCHECK_VERSION in .github/workflows/release.yml.
 GOVULNCHECK    ?= go run golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
-.PHONY: build test fuzz test-integration test-envtest test-rules generate lint vuln run-server selftest image image-tarball clean
+.PHONY: build test fuzz test-integration test-envtest test-rules generate lint vuln run-server selftest image image-tarball image-mirror clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/meles ./cmd/meles
@@ -73,6 +73,11 @@ image-tarball:
 	KO_DOCKER_REPO=local.invalid/meles VERSION=$(VERSION) \
 		go run github.com/google/ko@$(KO_VERSION) build --bare --platform=linux/amd64 \
 		--push=false --tarball=dist/meles.tar ./cmd/meles
+
+# The mirror's cvdupdate image (images/mirror) for this platform, with
+# Docker; the release workflow builds and publishes it for all platforms.
+image-mirror:
+	docker build -t meles-mirror:dev images/mirror
 
 clean:
 	rm -rf bin dist

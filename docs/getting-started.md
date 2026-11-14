@@ -180,9 +180,8 @@ You need:
 - about 2 GB of free memory on one node for clamd (it requests 1.5 GiB)
 - a default StorageClass (two volumes: 2 GiB for the signature database,
   1 GiB for the web UI's database)
-- outbound HTTPS to the ClamAV database (`database.clamav.net`), to PyPI
-  (the mirror installs `cvdupdate` at start) and to the registries of your
-  images
+- outbound HTTPS to the ClamAV database (`database.clamav.net`) and to the
+  registries of your images
 - `helm` 3.8 or later
 
 ### Install

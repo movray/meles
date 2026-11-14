@@ -21,12 +21,23 @@ updates:
       # hand together with go-containerregistry.
       - dependency-name: github.com/google/go-containerregistry/pkg/authn/kubernetes
 
+  # The mirror image: cvdupdate and its dependencies, the Chainguard base
+  # images (pinned by digest).
   - package-ecosystem: pip
-    directory: /charts/meles/files/mirror
+    directory: /images/mirror
     schedule:
       interval: weekly
     groups:
       mirror:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: docker
+    directory: /images/mirror
+    schedule:
+      interval: weekly
+    groups:
+      mirror-base:
         patterns: ["*"]
     commit-message:
       prefix: "chore(deps)"
