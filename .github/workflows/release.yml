@@ -272,7 +272,23 @@ jobs:
           fi
 
       - name: Binary provenance
+        id: binary-provenance
         if: env.PUBLISH == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
+      # The same signed provenance as a release asset, one bundle per line:
+      # for offline checks (gh attestation verify --bundle) and for tools
+      # that look for *.intoto.jsonl in the release, such as OpenSSF
+      # Scorecard.
+      - name: Provenance as release asset
+        if: env.PUBLISH == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE: ${{ steps.binary-provenance.outputs.bundle-path }}
+        run: |
+          set -eu
+          asset="$OUT/meles_${VERSION}.intoto.jsonl"
+          jq -c . "$BUNDLE" > "$asset"
+          [ "$(wc -l < "$asset")" -ge 1 ] || { echo "empty provenance bundle" >&2; exit 1; }
+          gh release upload "$GITHUB_REF_NAME" "$asset" -R "$GITHUB_REPOSITORY"

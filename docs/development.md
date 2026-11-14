@@ -162,7 +162,8 @@ Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, a pre-release that does not move
    amd64/arm64) and creates the GitHub release: the section `## vX.Y.Z` of
    `CHANGELOG.md` (upgrade notes, security fixes) on top, the changelog
    from the Conventional Commits below; the binaries get build provenance
-   as well.
+   as well, which is also attached to the release as
+   `meles_X.Y.Z.intoto.jsonl`.
 
 Write the `CHANGELOG.md` section before tagging: a final release without
 one fails before anything is published. Pre-releases may leave it out.

@@ -145,6 +145,14 @@ gh attestation verify oci://ghcr.io/movray/meles:$VERSION -R movray/meles
 gh attestation verify oci://ghcr.io/movray/charts/meles:$VERSION -R movray/meles
 ```
 
+Releases after 0.4.1 also carry the provenance of the binaries as
+`meles_$VERSION.intoto.jsonl`, for a check without the GitHub API:
+
+```sh
+gh attestation verify meles_${VERSION}_linux_amd64.tar.gz -R movray/meles \
+  --bundle meles_$VERSION.intoto.jsonl
+```
+
 Image and chart are also signed with cosign (keyless), so admission
 policies such as Kyverno or the Sigstore policy-controller can check them.
 The signatures are Sigstore bundles stored as OCI referrers: verify with
