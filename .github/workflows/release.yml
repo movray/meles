@@ -259,6 +259,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
+          # A final release often sits on the commit of its last pre-release
+          # (v1.0.0 and v1.0.0-rc.1): without this, GoReleaser may pick the
+          # pre-release tag.
+          [ "$PUBLISH" = true ] && export GORELEASER_CURRENT_TAG="$GITHUB_REF_NAME"
           header=""
           [ -n "${NOTES:-}" ] && header="--release-header=$NOTES"
           if [ "$PUBLISH" = true ]; then
