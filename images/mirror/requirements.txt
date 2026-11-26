@@ -2,8 +2,9 @@
 # installs exactly these wheels or fails. All of them are pure Python
 # (py3-none-any), so one install serves every platform. Dependabot updates
 # this file.
-certifi==2026.10.23 \
-    --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1
+certifi==2026.11.20 \
+    --hash=sha256:7422df25243767b9877031a2248cb14d09ddac9beee846f4cef3d5c9191d488f \
+    --hash=sha256:af1cb240a8133f105aa52684a3a3258339d7f2fd0bd4e2812698ff5cf5588c4e
 charset-normalizer==3.5.2 \
     --hash=sha256:b6b751274acb69d77b3323d6b7dbaa3c7fdfc1eb829b7eb61d262f32e1af9685
 click==8.5.1 \
