@@ -6,13 +6,13 @@
 #
 # The wheels are pure Python: they are installed once on the build platform
 # and copied into the image of every target platform, without emulation.
-FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/python:latest-dev@sha256:88d8715285b78746679a86fa126fe01e68b7940c3299ee3b4cf8245d4b17095f AS build
+FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/python:latest-dev@sha256:42c7616876638d3fc9f6663aeb159a346ebe494aced2c7c2c1bb990245ba45b8 AS build
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --no-compile --require-hashes --no-deps --only-binary :all: \
       --target /tmp/app/lib -r /tmp/requirements.txt \
  && rm -rf /tmp/app/lib/bin
 
-FROM cgr.dev/chainguard/python:latest@sha256:d914788ef74519450a69bc5cce6a1cc747dbefb95a3d431daa4ff707767fea8a
+FROM cgr.dev/chainguard/python:latest@sha256:8ee621c22371d08cc07f734704837da58b48b12fe52815fd81e1f426c082fb6c
 COPY --from=build /tmp/app/lib /app/lib
 COPY update.py /app/update.py
 ENV PYTHONPATH=/app/lib PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
